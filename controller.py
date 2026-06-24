@@ -157,56 +157,63 @@ class MainController:
     # ============================================
     # VIEW RENDER PIPELINE
     # ============================================
-    def on_mode_change(self, new_mode:str, new_submode:str | None):
-        self._stop_drawing() # Clear active lines
+    def on_mode_change(self, new_mode: str, new_submode: str | None):
+        self._stop_drawing()
         self.mode = new_mode
+        self.sub_mode = new_submode
+
+        # Define the dispatch table
+        mode_handlers = {
+            "edge": self._on_mode_edge,
+            "node": self._on_mode_node,
+            "support": self._on_mode_support_force,
+            "force": self._on_mode_support_force,
+            "mesh": self._on_mode_mesh,
+            "utils": self._on_mode_utils
+        }
+
+        # Route the execution
+        handler = mode_handlers.get(new_mode)
+        if handler:
+            handler()
         
-        if new_mode == "edge" and new_submode:
-
-            # check if it's possible to create such node
-            if ( (new_submode == "linear" and len(self.model.nodes) < 2) or (len(self.model.nodes) < 3)):
-                self.log("Number of nodes not sufficient", "warn")
-                # if its impossible to create an edge, force mode into node
-                self.mode, self.sub_mode = "node", None
-                return
-            
-            self.view.clear_misc_from_canvas()
-            self.sub_mode = new_submode
-            self.view.mode_text_var.set(f"✏️ Edge ({new_submode.capitalize()})")
-            self.log("Edge mode: Select first node.")
-        
-        elif new_mode == "node":
-            self.view.mode_text_var.set("✏️ Node")
-            self.log("Node Mode: Click anywhere to place a node.")
-
-        elif new_mode in {"support", "force"} and new_submode:
-            self.view.mode_text_var.set(f"{new_mode.capitalize()} ({new_submode.capitalize()})")
-            self.sub_mode = new_submode
-            self.log(f"{new_mode.capitalize()} Mode: Select {new_submode.capitalize()} to apply support!")
-        
-        elif new_mode == "mesh":
-            if len(self.model.nodes) < 3:
-                self.log("Not enough nodes to define Mesh!", "warn")
-                return
-            elif len(self.model.edges) < 2:
-                self.log("Not enough edges to define Mesh!", "warn")
-                return
-            elif not self.model.supports:
-                self.log("Please define supports before applying Mesh!", "warn")
-                return
-            
-            self.view.mode_text_var.set("Mesh")
-            self.log("Move slider to update mesh!")
-
-        elif new_mode == "utils":            
-            if new_submode == "move":
-                self.log("Click Node you want to move")
-            elif new_submode == "split":
-                self.log("Click first node of edge you want to split")
-            
-            self.sub_mode = new_submode
-
         self.view.set_toolbar_visibility(self.mode, self.sub_mode)
+
+    # --- Mode Helpers ---
+
+    def _on_mode_edge(self):
+        assert isinstance(self.sub_mode, str)
+        
+        if (self.sub_mode == "linear" and len(self.model.nodes) < 2) or (len(self.model.nodes) < 3):
+            self.log("Number of nodes not sufficient", "warn")
+            self.mode, self.sub_mode = "node", None
+            return
+        
+        self.view.clear_misc_from_canvas()
+        self.view.mode_text_var.set(f"✏️ Edge ({self.sub_mode.capitalize()})")
+        self.log("Edge mode: Select first node.")
+
+    def _on_mode_node(self):
+        self.view.mode_text_var.set("✏️ Node")
+        self.log("Node Mode: Click anywhere to place a node.")
+
+    def _on_mode_support_force(self):
+        assert isinstance(self.sub_mode, str)
+        self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
+        self.log(f"{self.mode.capitalize()} Mode: Select {self.sub_mode.capitalize()} to apply!")
+
+    def _on_mode_mesh(self):
+        if len(self.model.nodes) < 3 or len(self.model.edges) < 2 or not self.model.supports:
+            self.log("Prerequisites for Mesh not met (Nodes, Edges, Supports)!", "warn")
+            return
+        self.view.mode_text_var.set("Mesh")
+        self.log("Move slider to update mesh!")
+
+    def _on_mode_utils(self):
+        assert isinstance(self.sub_mode, str)
+        messages = {"move": "Click Node you want to move", "split": "Click first node of edge you want to split"}
+        self.view.mode_text_var.set(f"Utils ({self.sub_mode.capitalize()})")
+        self.log(messages.get(self.sub_mode, "Utility tool active"))
     
     def log(self, value:str, kind:str = "normal"):
         """
@@ -883,8 +890,8 @@ class MainController:
                         self._switch_editing_coord()
                 elif self.mode in {"support", "force"}:
                     self.sub_mode = "node" if self.sub_mode == "edge" else "edge"
-                assert self.sub_mode is str
-                self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
+                    assert isinstance(self.sub_mode, str)
+                    self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
 
 
                 
@@ -991,7 +998,7 @@ class MainController:
         end_id = self.active_node_ids[1]        
         mid_id = self.active_node_ids[2] if len(self.active_node_ids) == 3 else None
         
-        assert self.sub_mode is str
+        assert isinstance(self.sub_mode, str)
         self.model.add_edge(
             type=self.sub_mode,
             start_node_id=start_id,

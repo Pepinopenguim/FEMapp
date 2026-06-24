@@ -223,7 +223,7 @@ class FEMModel:
             for i in range(1, math_segments):
                 internal_points.append((start_node.x + i * dx, start_node.y + i * dy))
         else:
-            assert original_edge.mid_node is int
+            assert isinstance(original_edge.mid_node, int)
             mid_node = self.nodes[original_edge.mid_node]
             
             if edge_type == "parabola":
