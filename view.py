@@ -3,6 +3,7 @@ import tkinter.ttk as ttk
 import TKinterModernThemes as tmt
 from tkinter import simpledialog
 from math import cos, sin
+from typing import Literal
 
 from typing import List, Tuple, Dict
 
@@ -637,7 +638,7 @@ class MainView:
 
         self.canvas.tag_lower("axis")
 
-    def draw_grid(self, offset_pxls: tuple[float, float], zoom: float, precision: int):
+    def draw_grid(self, offset_pxls: tuple[float, float], zoom: float, precision: int | float):
         self.canvas.delete("grid")
 
         cw = self.canvas.winfo_width()
@@ -687,7 +688,7 @@ class MainView:
 
         self.canvas.tag_lower("grid") # Ensure grid stays behind nodes/edges
 
-    def draw_nodes(self, points:Dict[int, Tuple[float]], active_node_ids:List[Tuple[float]], r:float=4.0):
+    def draw_nodes(self, points:Dict[int, tuple[float, float]], active_node_ids:List[int], r:float=4.0):
         # delete previously drawn points
         self.canvas.delete("point")
 
@@ -938,7 +939,15 @@ class MainView:
 
         self.canvas.tag_raise("force")
 
-    def write_coordinate(self, value:Tuple[float], at:Tuple[float], text_offset:Tuple[float] = (16, 16), fill:str="lightgray", font=("Consolas", 10), anchor="w",tags=None):
+    def write_coordinate(
+            self,
+            value:Tuple[float, float], 
+            at:Tuple[float, float], 
+            text_offset:Tuple[float, float] = (16, 16), 
+            fill:str="lightgray", font=("Consolas", 10), 
+            anchor:Literal['nw', 'n', 'ne', 'w', 'center', 'e', 'sw', 's', 'se']="w",
+            tags:str | list[str] | tuple[str, ...] = ""
+        ):
         x, y = value
         xc, yc = at
         offx, offy = text_offset
@@ -952,7 +961,7 @@ class MainView:
             tags=tags,
         )   
 
-    def draw_near_mouse(self, mouse_coords_unt:Tuple[float], mouse_coords_pxl:Tuple[float]):
+    def draw_near_mouse(self, mouse_coords_unt:Tuple[float, float], mouse_coords_pxl:Tuple[float, float]):
         # Clean up previous text
         self.canvas.delete("coord_lbl")
 

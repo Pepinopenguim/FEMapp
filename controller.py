@@ -31,7 +31,7 @@ class MainController:
         self.pan_offset_x , self.pan_offset_y = 0, 0
 
         self.active_points = []
-        self.active_node_ids = []
+        self.active_node_ids: list[int] = []
 
         self.preview_line = []
         self.preview_curve = []
@@ -303,6 +303,7 @@ class MainController:
                     y = n_start.y + t * (n_end.y - n_start.y)
                     points_unt.append((x, y))
             else:
+                assert edge.mid_node is not None
                 n_mid = self.model.nodes[edge.mid_node]
                 # Reuse your existing math helpers!
                 if edge.type == "parabola":
@@ -367,6 +368,7 @@ class MainController:
                     y = n_start.y + t * dy
                     points_and_angles.append(((x, y), tangent_angle))
             else:
+                assert edge.mid_node is not None
                 n_mid = self.model.nodes[edge.mid_node]
                 # Reuse our MathHelper to get both positions and tangents instantly
                 if edge.type == "parabola":
@@ -485,8 +487,8 @@ class MainController:
                 # Restore the default cursor (an empty string resets it, or use "crosshair")
 
                 # Restore variables
-                self._pan_start_xc = None
-                self._pan_start_y = None
+                self._pan_start_xc = 0.0
+                self._pan_start_yc = 0.0
 
     def on_mouse_scroll(self, direction: float, modifier="none"):
         # Route the action based on the explicit modifier string
@@ -679,13 +681,13 @@ class MainController:
                             return
                         
                         # check if edge has support
-                        if self.model.edge_has_support(self.active_node_ids):
+                        if self.model.edge_has_support((self.active_node_ids[0], self.active_node_ids[1])):
                             self.log("Edge already has defined supports for it!", "warn")
                             self.active_node_ids.clear()
                             self.on_canvas_update()
                             return
                         
-                        self._commit_support(self.active_node_ids, support)
+                        self._commit_support((self.active_node_ids[0], self.active_node_ids[1]), support)
 
             case "force":
                 if not clicked_node_id: return
@@ -718,14 +720,14 @@ class MainController:
                             self.on_canvas_update()
                             return
                         
-                        if self.model.edge_has_distributed_load(self.active_node_ids):
+                        if self.model.edge_has_distributed_load((self.active_node_ids[0], self.active_node_ids[1])):
                             self.log("Edge already has defined loads for it!", "warn")
                             self.active_node_ids.clear()
                             self.on_canvas_update()
                             return
                         
                         magnitude = fx if is_pressure else hypot(fx, fy)
-                        global_angle = None if is_pressure else degrees(atan2(fy, fx))
+                        global_angle = 0.0 if is_pressure else degrees(atan2(fy, fx))
 
                         # THE MAGNITUDE INVERSION TRICK
                         edge = self.model.edges[edge_id]
@@ -736,7 +738,7 @@ class MainController:
                             magnitude = -magnitude
                         
                         self._commit_distributed_load(
-                            self.active_node_ids,
+                            (self.active_node_ids[0], self.active_node_ids[1]),
                             magnitude,
                             moment=m,
                             direction_type="normal" if is_pressure else "global",
@@ -795,7 +797,7 @@ class MainController:
                         return
 
                     elif len(self.active_node_ids) == 2:
-                        self._split_element(tuple(self.active_node_ids))
+                        self._split_element((self.active_node_ids[0], self.active_node_ids[1]))
 
                     
     def on_right_click_canvas(self, x, y):
@@ -828,7 +830,7 @@ class MainController:
             if len(self.active_node_ids) == 1:
                 self.log(f"Right click another node from edge to delete its {self.mode.capitalize()}.")
             elif len(self.active_node_ids) == 2:
-                nodes_to_delete = tuple(self.active_node_ids)
+                nodes_to_delete = (self.active_node_ids[0], self.active_node_ids[1])
                 self.active_node_ids.clear()
                 self._delete_from_model(nodes_to_delete)
 
@@ -881,6 +883,7 @@ class MainController:
                         self._switch_editing_coord()
                 elif self.mode in {"support", "force"}:
                     self.sub_mode = "node" if self.sub_mode == "edge" else "edge"
+                assert self.sub_mode is str
                 self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
 
 
@@ -987,7 +990,8 @@ class MainController:
         start_id = self.active_node_ids[0]
         end_id = self.active_node_ids[1]        
         mid_id = self.active_node_ids[2] if len(self.active_node_ids) == 3 else None
-
+        
+        assert self.sub_mode is str
         self.model.add_edge(
             type=self.sub_mode,
             start_node_id=start_id,
@@ -1047,7 +1051,10 @@ class MainController:
         self.on_canvas_update()
         
     def _delete_from_model(self, target: int | tuple[int, int] | None = None):
-        if self.mode == "node": self.model.delete_node(target)
+        if self.mode == "node":
+            if isinstance(target, tuple):
+                raise TypeError("target of delete_node at Model may not be a tuple!")
+            self.model.delete_node(target)
         elif self.mode == "edge": self.model.delete_edge(target)
         elif self.mode == "support": self.model.delete_support(target)
         elif self.mode == "force": self.model.delete_force(target)

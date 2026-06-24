@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Literal
+from typing import Dict, Optional, Literal, TypeGuard
 from math import hypot, atan2, degrees
 from curve import CurveHelper
 import json
@@ -223,6 +223,7 @@ class FEMModel:
             for i in range(1, math_segments):
                 internal_points.append((start_node.x + i * dx, start_node.y + i * dy))
         else:
+            assert original_edge.mid_node is int
             mid_node = self.nodes[original_edge.mid_node]
             
             if edge_type == "parabola":
@@ -382,10 +383,15 @@ class FEMModel:
         if edge_id is None:
             return False
 
+        def validate_direction(value: str) -> Literal['normal', 'global']:
+            if value not in ('normal', 'global'):
+                raise ValueError(f"direction_type must be 'normal' or 'global', got {value}")
+            return value  
+        
         self.forces.edges[edge_id] = DistributedLoad(
             magnitude=magnitude,
             moment=moment,
-            direction_type=direction_type,
+            direction_type=validate_direction(direction_type),
             global_angle=global_angle,
         )
 
@@ -394,7 +400,7 @@ class FEMModel:
     def node_has_point_load(self, node_id:int) -> bool:
         return node_id in self.forces.nodes
     
-    def edge_has_distributed_load(self, node_ids:tuple[float, float]) -> bool:
+    def edge_has_distributed_load(self, node_ids:tuple[int, int]) -> bool:
         edge_id = self.get_edge_id_by_nodes(*node_ids)
         return edge_id in self.forces.edges
     
