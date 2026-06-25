@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Literal, TypeGuard
+from dataclasses import dataclass, field, asdict
+from typing import Dict, Optional, Literal, Any
 from math import hypot, atan2, degrees
 from curve import CurveHelper
 import json
@@ -13,11 +13,7 @@ class Node:
         """Returns the node's coordinates as a tuple."""
         return (self.x, self.y)
     
-    def as_json(self) -> dict[str, float]:
-        return {
-            "x": self.x,
-            "y": self.y,
-        }
+    def as_json(self) -> dict[str, float]: return asdict(self)
 
 
 @dataclass
@@ -32,14 +28,7 @@ class Edge:
         """Returns a list of nodes (as ids) that define the edge"""
         return [self.start_node, self.end_node] + ([self.mid_node,] if self.mid_node is not None else [])
     
-    def as_json(self) -> dict[str, str | int | None]:
-        return {
-            "type": self.type,
-            "start_node": self.start_node,
-            "end_node": self.end_node,
-            "mid_node": self.mid_node,
-            "boundary_group": self.boundary_group,
-        }
+    def as_json(self) -> dict[str, str | int | None]: return asdict(self)
 
 @dataclass
 class Support:
@@ -50,11 +39,15 @@ class Support:
     def __bool__(self):
         return bool(self.nodes) or bool(self.edges)
     
-    def as_json(self) -> Dict[str, Dict[int, str]]:
-        return {
-            "nodes": self.nodes,
-            "edges": self.edges,
-        }
+    def as_json(self) -> Dict[str, Dict[int, str]]: return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Support":
+        # Cast keys back to int
+        nodes = {int(k): v for k, v in data.get("nodes", {}).items()}
+        edges = {int(k): v for k, v in data.get("edges", {}).items()}
+        return cls(nodes=nodes, edges=edges)
+
 
 @dataclass
 class PointLoad:
@@ -62,42 +55,57 @@ class PointLoad:
     fy: float = 0.0
     m: float = 0.0
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return any([bool(i) for i in (self.fx, self.fy, self.m)])
-
-    def as_polar(self) -> tuple[float, float]:
-        """Returns (magnitude, angle_in_degrees)."""
-        magn = hypot(self.fx, self.fy)
-        theta_rad = atan2(self.fy, self.fx)
-        theta_deg = degrees(theta_rad)
-        
-        return (magn, theta_deg)
     
-    #def as_json(self) -> :
-        
+    def as_polar(self) -> tuple[float, float]:
+        magn = hypot(self.fx, self.fy)
+        angle = degrees(atan2(self.fy, self.fx))
+
+        return magn, angle
+
+    def as_json(self) -> dict[str, float]:
+        # Simple dict return since all fields are floats
+        return asdict(self)
 
 @dataclass
 class DistributedLoad:
     magnitude: float
-    moment:float
+    moment: float
     direction_type: Literal["normal", "global"] = "normal" 
-
-    # Only used if direction_type is "global"
     global_angle: float = 0.0 
+
+    def as_json(self) -> dict[str, Any]:
+        return asdict(self)
 
 @dataclass
 class ForceManager:
     nodes: Dict[int, PointLoad] = field(default_factory=dict)
     edges: Dict[int, DistributedLoad] = field(default_factory=dict)
 
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "nodes": {i: n.as_json() for i, n in self.nodes.items()},
+            "edges": {i: n.as_json() for i, n in self.edges.items()},
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ForceManager":
+        nodes = {int(k): PointLoad(**v) for k, v in data.get("nodes", {}).items()}
+        edges = {int(k): DistributedLoad(**v) for k, v in data.get("edges", {}).items()}
+        return cls(nodes=nodes, edges=edges)
+
 @dataclass
 class Mesh:
     nodes: list[tuple[float, float]]
     triangles: list[tuple[int, int, int]]
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.nodes) or bool(self.triangles)
 
+    def as_json(self) -> dict[str, Any]:
+        return asdict(self)
+    
 class FEMModel:
 
     def __init__(self):
@@ -448,14 +456,32 @@ class FEMModel:
 
     def clear_mesh(self): self.mesh = Mesh(nodes=[], triangles=[])
 
-    def as_json(self, file_name: str):
-        data = {
-            "nodes": {
-                str(nid): node.as_json() for nid, node in self.nodes.items()
-            }
+    def as_json(self) -> dict[str, Any]:
+        """Returns the entire model state as a dictionary."""
+        return {
+            "nodes": {str(k): v.as_json() for k, v in self.nodes.items()},
+            "edges": {str(k): v.as_json() for k, v in self.edges.items()},
+            #"mesh": self.mesh.as_json(),
+            "supports": self.supports.as_json(),
+            "forces": self.forces.as_json(),
+            "counters": {"nodes": self._node_counter, "edges": self._edge_counter}
         }
-        with open(file_name, "w") as fp:
-            json.dump(data, fp, indent=4)
+
+    def load_from_json(self, data: dict[str, Any]):
+        """Rebuilds the model state from a dictionary."""
+        
+        # Rebuild nodes/edges
+        self.nodes = {int(k): Node(**v) for k, v in data.get("nodes", {}).items()}
+        self.edges = {int(k): Edge(**v) for k, v in data.get("edges", {}).items()}
+        
+        # Rebuild sub-objects using their dedicated builders
+        self.supports = Support.from_dict(data.get("supports", {}))
+        self.forces = ForceManager.from_dict(data.get("forces", {}))
+        
+        # Restore counters
+        counters = data.get("counters", {"nodes": 0, "edges": 0})
+        self._node_counter = counters.get("nodes", 0)
+        self._edge_counter = counters.get("edges", 0)
 
 
 

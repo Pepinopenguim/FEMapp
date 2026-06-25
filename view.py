@@ -1,9 +1,9 @@
 import tkinter as tk
 import tkinter.ttk as ttk
 import TKinterModernThemes as tmt
-from tkinter import simpledialog
+from tkinter import simpledialog, filedialog
 from math import cos, sin
-from typing import Literal
+from typing import Literal, Callable
 
 from typing import List, Tuple, Dict
 
@@ -53,10 +53,6 @@ class MainView:
         )
 
         self.file_btn["menu"] = self.file_menu
-
-        self.file_menu.add_command(label="New")
-        self.file_menu.add_command(label="Open")
-        self.file_menu.add_command(label="Save")
 
         self.file_btn.pack(
             side="left",
@@ -244,7 +240,8 @@ class MainView:
         self.log_text_var = tk.StringVar(value="")
         self.log_label = ttk.Label(
             logbar, 
-            textvariable=self.log_text_var
+            textvariable=self.log_text_var,
+            font=("Consolas", 16)
         )
         self.log_label.pack(side="left", padx=4)
 
@@ -288,10 +285,6 @@ class MainView:
         if mode == "force" and submode:
             self._sync_force_submode(submode)
 
-
-    
-
-
     # ============================
     # BINDINGS 
     # ============================
@@ -304,6 +297,36 @@ class MainView:
             "<<ComboboxSelected>>",
             lambda event: callback(self.boundary_var.get())
         )
+
+    def bind_file_change(self, callback: Callable[[str, str], None]):
+
+        self.file_menu.add_command(
+            label="Open",
+            command=lambda: callback(
+                "open",
+                filedialog.askopenfilename(
+                    title='Open',
+                    filetypes=[
+                        ('json files', '*.json'),
+                        ('All files', '*.*')
+                        ]
+                    )
+                ),
+            )
+        self.file_menu.add_command(
+            label="Save",
+            command=lambda: callback(
+                "save",
+                filedialog.asksaveasfilename(
+                    title='Save as json file',
+                    filetypes=[
+                        ('json files', '*.json'),
+                        ('All files', '*.*')
+                        ]
+                    )
+                )
+            )
+        
 
     def bind_mode_change(self, callback):
         """Passes the selected string mode and sub-mode to the controller."""
@@ -535,7 +558,7 @@ class MainView:
             self.fy_double_var.get(),
             self.m_double_var.get(),
         )
-        
+    
     # ============================
     # DIALOG
     # ============================

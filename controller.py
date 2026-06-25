@@ -5,6 +5,7 @@ from math import hypot, degrees, atan2
 import numpy as np
 from mesh import MeshEngine
 from curve import CurveHelper
+import json
 
 class MainController:
 
@@ -76,6 +77,7 @@ class MainController:
         # button bindings
         self.view.add_hole_btn.config(command=self.create_new_hole_group)
         self.view.bind_mode_change(self.on_mode_change)
+        self.view.bind_file_change(self.on_file_tool)
 
     # ============================================
     # MATH & COORDINATE UTILITIES
@@ -179,6 +181,32 @@ class MainController:
         
         self.view.set_toolbar_visibility(self.mode, self.sub_mode)
 
+    def on_file_tool(self, fmode: str, filepath: str):
+
+        def on_file_save(filepath:str):
+            json_data = self.model.as_json()
+            
+            with open(filepath, "w", encoding="utf-8") as fp:
+                json.dump(json_data, fp, indent=4)
+            
+            self.log(f"Saved successfully into {filepath}")
+
+        def on_file_load(filepath:str):
+            with open(filepath, "r", encoding="utf-8") as fp:
+                json_data = json.load(fp)
+                self.model.load_from_json(json_data)
+            
+            self.log(f"Loaded {filepath} successfully")
+
+        fmode_mapper = {
+            "open": on_file_load,
+            "save": on_file_save,
+        }
+
+        fmode_mapper[fmode](filepath)
+        self.on_canvas_update()
+
+
     # --- Mode Helpers ---
 
     def _on_mode_edge(self):
@@ -200,6 +228,7 @@ class MainController:
     def _on_mode_support_force(self):
         assert isinstance(self.sub_mode, str)
         self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
+        self.view.is_pressure_var.set(False)
         self.log(f"{self.mode.capitalize()} Mode: Select {self.sub_mode.capitalize()} to apply!")
 
     def _on_mode_mesh(self):
@@ -986,7 +1015,7 @@ class MainController:
       
     def _commit_node(self):
         new_x, new_y = self.active_points[-1]
-        self.model.add_node(new_x, new_y)
+        self.model.add_node(float(new_x), float(new_y))
         
         self.active_points = [(new_x, new_y)]
         self.log(f"Node created at [{new_x}, {new_y}]")
