@@ -135,54 +135,43 @@ class MainView:
         # === force items ===
         self.force_container = ttk.Frame(toolbar)
 
-        self.is_pressure_var = tk.BooleanVar(value=False)
+        # -- nodes --
+        self.force_node_frame = ttk.Frame(self.force_container)
 
-        self.is_pressure_cb = ttk.Checkbutton(
-            self.force_container,
-            text="Pressure",
-            variable=self.is_pressure_var,
-            command=self._pressure_cb_clicked
+        self.fx_var = tk.DoubleVar(value=0.0)
+        self.fy_var = tk.DoubleVar(value=0.0)
+        self.m_var = tk.DoubleVar(value=0.0)
+
+        for text, var in [("Fx:", self.fx_var), ("Fy:", self.fy_var), ("M:", self.node_m_var)]:
+            f = ttk.Frame(self.force_node_frame)
+            f.pack(side="left", padx=5)
+            ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
+            ttk.Entry(f, textvariable=var, width=8).pack(side="left")
+
+        # -- edges --
+        self.force_edge_frame = ttk.Frame(self.force_container)
+        
+        self.edge_dir_var = tk.StringVar(value="Normal")
+        self.q_start_var = tk.DoubleVar(value=0.0)
+        self.q_end_var = tk.DoubleVar(value=0.0)
+        self.edge_ang_var = tk.DoubleVar(value=0.0)
+        self.edge_m_var = tk.DoubleVar(value=0.0)
+
+        # Direction Dropdown (Normal vs Global Angle)
+        self.dir_cb = ttk.Combobox(
+            self.force_edge_frame, 
+            textvariable=self.edge_dir_var, 
+            values=["Normal", "Global"], 
+            state="readonly", 
+            width=8
         )
-        self.is_pressure_cb.pack(side="left", padx=(5,0))
+        self.dir_cb.pack(side="left", padx=5)
 
-        # -----------------------------------------
-        # Fx OR Pressure Container 
-        # -----------------------------------------
-        self.fx_p_string_var = tk.StringVar(value="Fx:")
-        
-        self.fx_p_frame = ttk.Frame(self.force_container)
-        self.fx_p_frame.pack(side="left", padx=5) 
-        
-        ttk.Label(self.fx_p_frame, textvariable=self.fx_p_string_var).pack(side="left", padx=(0, 2))
-        
-        self.fx_double_var = tk.DoubleVar(value=0.0)
-        self.fx_entry = ttk.Entry(self.fx_p_frame, textvariable=self.fx_double_var, width=8)
-        self.fx_entry.pack(side="left")
-
-        # -----------------------------------------
-        # Global Forces Container (Fy and M)
-        # -----------------------------------------
-        self.global_forces_containers = ttk.Frame(self.force_container)
-        self.global_forces_containers.pack(side="left", padx=(5,0))
-
-        self.fy_double_var = tk.DoubleVar(value=0.0)
-        self.m_double_var = tk.DoubleVar(value=0.0)
-
-        # Fy Container
-        fy_frame = ttk.Frame(self.global_forces_containers)
-        fy_frame.pack(side="left", padx=5)
-        ttk.Label(fy_frame, text="Fy:").pack(side="left", padx=(0, 2))
-        self.fy_entry = ttk.Entry(fy_frame, textvariable=self.fy_double_var, width=8)
-        self.fy_entry.pack(side="left")
-
-        # Moment Container
-        m_frame = ttk.Frame(self.global_forces_containers)
-        m_frame.pack(side="left", padx=5)
-        ttk.Label(m_frame, text="M:").pack(side="left", padx=(0, 2))
-        self.m_entry = ttk.Entry(m_frame, textvariable=self.m_double_var, width=8)
-        self.m_entry.pack(side="left")
-
-        
+        for text, var in [("Start:", self.q_start_var), ("End:", self.q_end_var), ("Ang(°):", self.edge_ang_var), ("M:", self.edge_m_var)]:
+            f = ttk.Frame(self.force_edge_frame)
+            f.pack(side="left", padx=5)
+            ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
+            ttk.Entry(f, textvariable=var, width=8).pack(side="left")
 
         # === mesh items ===
 
@@ -498,15 +487,36 @@ class MainView:
             case "input":
                 self.log_label.config(foreground="lightblue")
     
-    def _pressure_cb_clicked(self):
-        """Toggles the UI between Nodal Forces and Edge Pressures."""
-        self.global_forces_containers.pack_forget()
+    def _sync_force_submode(self, submode: str):
+        """Swaps force toolbars"""
+        self.force_node_frame.pack_forget()
+        self.force_edge_frame.pack_forget()
 
-        if self.is_pressure_var.get():
-            self.fx_p_string_var.set("P:")
-        else:
-            self.fx_p_string_var.set("Fx:")
-            self.global_forces_containers.pack(side="left", after=self.fx_p_frame)
+        if submode == "node": self.force_node_frame.pack(side="left")
+        if submode == "node": self.force_edge_frame.pack(side="left")
+
+    def _safe_get_double(self, var: tk.DoubleVar) -> float:
+        try:
+            return var.get()
+        except tk.TclError:
+            var.set(0.0)
+            return 0.0
+        
+    def get_node_force_data(self) -> tuple[float, float, float]:
+        return (
+            self._safe_get_double(self.fx_var),
+            self._safe_get_double(self.fy_var),
+            self._safe_get_double(self.m_var),
+        )
+    
+    def get_edge_force_data(self) -> tuple[str, float, float, float]:
+        return (
+            self.edge_dir_var.get(),
+            self._safe_get_double(self.q_start_var),
+            self._safe_get_double(self.q_end_var),
+            self._safe_get_double(self.edge_ang_var),
+            self._safe_get_double(self.edge_m_var),
+        )
 
     def _support_var_helper(self):
         if not any([
@@ -949,13 +959,13 @@ class MainView:
         
         self.canvas.delete("force")
 
-        for (magnitude, angle, moment), pixel_coords in force_data:
+        for (magnitude, angle, moment), pixel_coords, size_pxls in force_data:
             self._draw_force_helper(
                 at=pixel_coords,
                 magnitude=magnitude,
                 moment=moment,
                 angle=angle,
-                size=40,
+                size=size_pxls,
                 fill="#e5ff00",
                 tags="force"
             )
