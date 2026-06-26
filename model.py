@@ -115,7 +115,6 @@ class ForceManager:
 
 @dataclass
 class SolverNode:
-    # A lightweight object specifically for the solver
     x: float
     y: float
     support: str | None = None          # e.g., "xy", "x", None
@@ -123,6 +122,8 @@ class SolverNode:
     fy: float = 0.0
     m: float = 0.0
 
+    def as_json(self) -> dict[str, float | str | None]:
+        return asdict(self)
 
 @dataclass
 class Mesh:
@@ -524,5 +525,44 @@ class FEMModel:
         self._node_counter = counters.get("nodes", 0)
         self._edge_counter = counters.get("edges", 0)
 
+    def solve_mesh(self, model_type: Literal["Beam", "Plane Strain"]):
+        import subprocess
+        import os
+        
+        if not self.mesh:
+            raise Exception("Warning: No mesh exists. Cannot run solver.")
 
+        input_file = "temp_model_in.json"
+        output_file = "temp_model_out.json"
 
+        solver_payload = {
+            "mesh": self.mesh.as_json(),
+            "material": self.material.as_json()
+        }
+
+        with open(input_file, "w") as f:
+            json.dump(solver_payload, f)
+        
+        script_name = "solver_beam.jl" if model_type == "Beam" else "solver_plane_strain.jl"
+
+        try:
+            result = subprocess.run(
+                ["julia", script_name, input_file, output_file],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            if result.stdout:
+                print("Julia Output:\n", result.stdout)
+            
+            if os.path.exists(output_file):
+                with open(output_file, "r") as f:
+                    results = json.load(f)
+                    return results
+        except subprocess.CalledProcessError as e:
+            print(f"Julia Solver Failed:\n{e.stderr}")
+        finally:
+            for file in [input_file, output_file]:
+                if os.path.exists(file):
+                    os.remove(file)
