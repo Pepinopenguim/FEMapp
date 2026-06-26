@@ -188,6 +188,23 @@ class MainView:
         )
         self.mesh_slider.pack(side="left", padx=10)
 
+        self.solver_method_var = tk.StringVar(value="Plane Strain")
+        ttk.Combobox(
+            self.mesh_container,
+            textvariable=self.solver_method_var,
+            state="readonly",
+            values=[
+                "Plane Strain",
+                "Beam"
+            ]
+        ).pack(side="left", padx=10)
+
+        self.run_solver_btn = ttk.Button(
+            self.mesh_container,
+            text="Solve",
+        )
+        self.run_solver_btn.pack(side="left", padx=15)
+
         # === material items ===
         self.material_container = ttk.Frame(toolbar)
         self.material_container.pack(side="left", padx=10)
@@ -313,6 +330,16 @@ class MainView:
             command=internal_handler
         )
 
+    def bind_run_solver_btn(self, callback: Callable[[str], None]):
+        def internal_handler():
+            # get combobox value
+            method = self.solver_method_var.get()
+            callback(method)
+
+        self.run_solver_btn.config(
+            command=internal_handler
+        )
+
     def bind_file_change(self, callback: Callable[[str, str], None]):
 
         self.file_menu.add_command(
@@ -395,19 +422,15 @@ class MainView:
         )
 
         self.mode_menu.add_cascade(label="Force", menu=self.force_menu)
-
+        
+        # 5. Material
         self.material_menu = tk.Menu(self.mode_menu)
         self.mode_menu.add_command(
             label="Material",
             command=lambda: callback("material", None)
         )
-
-        # 6. Mesh mode
-        self.mode_menu.add_command(
-            label="Mesh",
-            command=lambda: callback("mesh", None)
-        )
-
+        
+        # 6. Utils
         self.utils_menu = tk.Menu(self.mode_menu, tearoff=False)
         self.utils_menu.add_command(
             label="Split Edge",
@@ -418,6 +441,13 @@ class MainView:
             command=lambda: callback("utils", "move")
         )
         self.mode_menu.add_cascade(label="Utilities", menu=self.utils_menu)
+
+        # 7. Mesh mode
+        self.mode_menu.add_command(
+            label="Mesh",
+            command=lambda: callback("mesh", None)
+        )
+
 
     def bind_canvas_click(self, callback):
         """

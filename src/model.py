@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Optional, Literal, Any
 from math import hypot, atan2, degrees
-from curve import CurveHelper
+from src.curve import CurveHelper
 import json
 
 @dataclass
@@ -154,8 +154,8 @@ class FEMModel:
         if any((i <= 1e-6 for i in {E, nu})):
             raise ValueError("Cannot define a material with Young/Poisson equal to zero nor negative!")
 
-        if nu > 1:
-            raise ValueError("Poisson's ratio cannot be bigger than 1!")
+        if nu > .5:
+            raise ValueError("Poisson's ratio cannot be bigger than 0.5!")
 
         self.material = Material(E, nu, gamma)
 
@@ -493,7 +493,7 @@ class FEMModel:
         self.mesh.solver_nodes = solver_nodes
         self.mesh.triangles = triangles
 
-    def clear_mesh(self): self.mesh = Mesh(solver_nodes=[], triangles=[])
+    def clear_mesh(self): self.mesh = Mesh({}, [])
 
     def as_json(self) -> dict[str, Any]:
         """Returns the entire model state as a dictionary."""
@@ -532,8 +532,10 @@ class FEMModel:
         if not self.mesh:
             raise Exception("Warning: No mesh exists. Cannot run solver.")
 
-        input_file = "temp_model_in.json"
-        output_file = "temp_model_out.json"
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        input_file = os.path.join(base_dir, "temp_model_in.json")
+        output_file = os.path.join(base_dir, "temp_model_out.json")
 
         solver_payload = {
             "mesh": self.mesh.as_json(),
@@ -543,11 +545,21 @@ class FEMModel:
         with open(input_file, "w") as f:
             json.dump(solver_payload, f)
         
-        script_name = "solver_beam.jl" if model_type == "Beam" else "solver_plane_strain.jl"
+        script_name = "solver_beam.jl" if model_type == "Beam" else "solver_plane.jl"
+        
+        # Paths
+        project_dir = os.path.join(base_dir, "solver")
+        script_path = os.path.join(project_dir, script_name)
 
         try:
             result = subprocess.run(
-                ["julia", script_name, input_file, output_file],
+                [
+                    "julia", 
+                    f"--project={project_dir}", # Tell Julia where the Project.toml is
+                    script_path, 
+                    input_file, 
+                    output_file
+                ],
                 capture_output=True,
                 text=True,
                 check=True
@@ -560,9 +572,7 @@ class FEMModel:
                 with open(output_file, "r") as f:
                     results = json.load(f)
                     return results
+                    
         except subprocess.CalledProcessError as e:
             print(f"Julia Solver Failed:\n{e.stderr}")
-        finally:
-            for file in [input_file, output_file]:
-                if os.path.exists(file):
-                    os.remove(file)
+            raise Exception(f"Solver Error: {e.stderr}")

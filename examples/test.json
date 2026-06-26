@@ -1,0 +1,104 @@
+{
+    "nodes": {
+        "1": {
+            "x": 0.0,
+            "y": 0.0
+        },
+        "2": {
+            "x": 0.0,
+            "y": 2.0
+        },
+        "3": {
+            "x": 2.0,
+            "y": 2.0
+        },
+        "4": {
+            "x": 2.0,
+            "y": 0.0
+        },
+        "6": {
+            "x": 0.2928932188134523,
+            "y": -0.7071067811865475
+        },
+        "7": {
+            "x": 0.9999999999999998,
+            "y": -1.0
+        },
+        "8": {
+            "x": 1.7071067811865475,
+            "y": -0.7071067811865477
+        }
+    },
+    "edges": {
+        "2": {
+            "type": "parabola",
+            "start_node": 4,
+            "end_node": 2,
+            "mid_node": 3,
+            "boundary_group": "external"
+        },
+        "3": {
+            "type": "linear",
+            "start_node": 2,
+            "end_node": 1,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "4": {
+            "type": "circle",
+            "start_node": 1,
+            "end_node": 7,
+            "mid_node": 6,
+            "boundary_group": "external"
+        },
+        "5": {
+            "type": "circle",
+            "start_node": 7,
+            "end_node": 4,
+            "mid_node": 8,
+            "boundary_group": "external"
+        }
+    },
+    "material": {
+        "E": 0.0,
+        "nu": 0.0,
+        "gamma": 0.0
+    },
+    "supports": {
+        "nodes": {
+            "3": "x"
+        },
+        "edges": {
+            "5": "xyz"
+        }
+    },
+    "forces": {
+        "nodes": {
+            "2": {
+                "fx": 1.0,
+                "fy": 2.0,
+                "m": 3.0
+            }
+        },
+        "edges": {
+            "2": {
+                "magnitude": 2.0,
+                "moment": 0.0,
+                "direction_type": "normal",
+                "global_angle": 0.0,
+                "magnitude_end": 2.0
+            },
+            "4": {
+                "magnitude": 2.0,
+                "moment": 0.0,
+                "direction_type": "global",
+                "global_angle": 90.0,
+                "magnitude_end": 0.0
+            }
+        }
+    },
+    "counters": {
+        "nodes": 8,
+        "edges": 5
+    }
+}

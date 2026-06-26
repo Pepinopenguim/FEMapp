@@ -1,10 +1,10 @@
 from typing import Tuple
-from view import MainView
-from model import FEMModel, Edge
+from src.view import MainView
+from src.model import FEMModel, Edge
 from math import hypot, degrees, atan2
 import numpy as np
-from mesh import MeshEngine
-from curve import CurveHelper
+from src.mesh import MeshEngine
+from src.curve import CurveHelper
 import json
 
 class MainController:
@@ -81,6 +81,7 @@ class MainController:
         self.view.bind_mode_change(self.on_mode_change)
         self.view.bind_file_change(self.on_file_tool)
         self.view.bind_apply_material_btn(self._commit_new_material)
+        self.view.bind_run_solver_btn(self.run_calculations)
 
     # ============================================
     # MATH & COORDINATE UTILITIES
@@ -1163,7 +1164,6 @@ class MainController:
         finally:
             # Always clean up the state, whether it succeeded or failed
             self.active_node_ids.clear()
-            self.view.set_force_input_state("normal") # unlocks UI
             self.on_canvas_update()
         
     def _delete_from_model(self, target: int | tuple[int, int] | None = None):
@@ -1217,10 +1217,16 @@ class MainController:
         except Exception as e:
             self.log(str(e), "warn")
 
-    def run_calculations(self):
-        if not self.model.mesh:
-            self.log("No mesh defined!", "warn")
-
     def remove_mesh(self):
         if self.model.mesh: self.model.clear_mesh()
         
+    def run_calculations(self, method:str):
+        if not self.model.mesh:
+            self.log("No mesh defined!", "warn")
+            return
+        if not self.model.material:
+            self.log("No material defined!")
+            return
+
+        self.log("Trying to solve!")
+        self.model.solve_mesh(method)

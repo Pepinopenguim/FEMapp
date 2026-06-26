@@ -1,7 +1,7 @@
 import gmsh
 from typing import Dict, List, Tuple, Type, Any
-from model import FEMModel, SolverNode
-from curve import CurveHelper
+from src.model import FEMModel, SolverNode
+from src.curve import CurveHelper
 from dataclasses import dataclass
 from math import sin, cos, radians, hypot
 
@@ -297,50 +297,54 @@ class MeshEngine:
         gmsh.model.geo.synchronize()
         gmsh.model.mesh.generate(2) # Generate 2D mesh
 
-        #  Extract the Data to native Python formats
-        node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-        # Gmsh returns a flat array [x1, y1, z1, x2, y2, z2...]. We slice it to get pairs.
-        mesh_nodes = [(node_coords[i], node_coords[i+1]) for i in range(0, len(node_coords), 3)]
-                    
-        # Map Gmsh's internal Node IDs to a 0-based array index for our triangles
-        tag_to_index = {tag: i for i, tag in enumerate(node_tags)}
-
-        # define supports and forces for each node_tag
-        node_tag_supports, node_tag_forces = self._compute_supports_and_forces(gmsh_node_tags, edge_curve_tags)
-        # for supports and forces, map to newly created indexes
-        
-        supports = {}
-        for tag, v in node_tag_supports.items():
-            if tag in tag_to_index:
-                supports[tag_to_index[tag]] = v
-        forces = {}
-        for tag, v in node_tag_forces.items():
-            if tag in tag_to_index:
-                forces[tag_to_index[tag]] = v
-
-        # Extract Triangles (Edge Type 2 in Gmsh is a 3-node triangle)
+        # Extract Triangles (elements)
         elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(dim=2)
         
         triangles = []
+        flat_triangle_nodes = []
         if 2 in elem_types: # If triangles were generated
             idx = list(elem_types).index(2)
             flat_triangle_nodes = elem_node_tags[idx]
-            
-            # Group into sets of 3 and map to array indices
-            for i in range(0, len(flat_triangle_nodes), 3):
-                n1 = tag_to_index[flat_triangle_nodes[i]]
-                n2 = tag_to_index[flat_triangle_nodes[i+1]]
-                n3 = tag_to_index[flat_triangle_nodes[i+2]]
-                triangles.append((n1, n2, n3))
 
+        # Filter for Active Nodes Only
+        # this avoids orphan nodes being generated
+        # Convert to a set to get unique Gmsh tags used in the 2D mesh
+        active_tags = list(set(flat_triangle_nodes))
+        active_tags.sort() # Keep the order deterministic
+        
+        # Create our new, dense 0-based index mapping
+        tag_to_index = {tag: i for i, tag in enumerate(active_tags)}
+
+        # Extract Coordinates and Map them
+        all_node_tags, all_node_coords, _ = gmsh.model.mesh.getNodes()
+        
+        # Build a fast coordinate lookup dictionary for ALL Gmsh nodes
+        tag_to_coords = {
+            tag: (all_node_coords[3*i], all_node_coords[3*i+1]) 
+            for i, tag in enumerate(all_node_tags)
+        }
+
+        # Build the Triangle Connectivity using the dense indices
+        for i in range(0, len(flat_triangle_nodes), 3):
+            n1 = tag_to_index[flat_triangle_nodes[i]]
+            n2 = tag_to_index[flat_triangle_nodes[i+1]]
+            n3 = tag_to_index[flat_triangle_nodes[i+2]]
+            triangles.append((n1, n2, n3))
+
+        # Fetch Supports and Forces (These use the raw Gmsh tags)
+        node_tag_supports, node_tag_forces = self._compute_supports_and_forces(gmsh_node_tags, edge_curve_tags)
+
+        # Build the final SolverNodes using ONLY the active tags
         solver_nodes = {}
-        for i, (x, y) in enumerate(mesh_nodes):
+        for tag in active_tags:
+            idx = tag_to_index[tag]
+            x, y = tag_to_coords[tag]
             
-            # Default to no constraints / no loads
-            support_str = supports.get(i, None)
-            fx, fy, m = forces.get(i, (0.0, 0.0, 0.0)) # Unpack but ignore the Moment!
+            # Fetch boundary conditions directly using the Gmsh tag
+            support_str = node_tag_supports.get(tag, None)
+            fx, fy, m = node_tag_forces.get(tag, (0.0, 0.0, 0.0))
 
-            solver_nodes[i] = SolverNode(
+            solver_nodes[idx] = SolverNode(
                 x=x, 
                 y=y, 
                 support=support_str, 
@@ -348,7 +352,6 @@ class MeshEngine:
                 fy=fy,
                 m=m
             )
-
 
         gmsh.finalize()
         return solver_nodes, triangles

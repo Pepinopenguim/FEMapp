@@ -1,6 +1,6 @@
-from model import FEMModel
-from view import MainView
-from controller import MainController
+from src.model import FEMModel
+from src.view import MainView
+from src.controller import MainController
 
 
 def main():
