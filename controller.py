@@ -33,6 +33,8 @@ class MainController:
 
         self.active_points = []
         self.active_node_ids: list[int] = []
+        # for trapezoidal forces, 
+        self.active_forces: list[tuple] = []
 
         self.preview_line = []
         self.preview_curve = []
@@ -78,6 +80,7 @@ class MainController:
         self.view.add_hole_btn.config(command=self.create_new_hole_group)
         self.view.bind_mode_change(self.on_mode_change)
         self.view.bind_file_change(self.on_file_tool)
+        self.view.bind_apply_material_btn(self._commit_new_material)
 
     # ============================================
     # MATH & COORDINATE UTILITIES
@@ -171,7 +174,8 @@ class MainController:
             "support": self._on_mode_support_force,
             "force": self._on_mode_support_force,
             "mesh": self._on_mode_mesh,
-            "utils": self._on_mode_utils
+            "utils": self._on_mode_utils,
+            "material": self._on_mode_material,
         }
 
         # Route the execution
@@ -206,8 +210,9 @@ class MainController:
         fmode_mapper[fmode](filepath)
         self.on_canvas_update()
 
-
+    # ======================
     # --- Mode Helpers ---
+    # ======================
 
     def _on_mode_edge(self):
         assert isinstance(self.sub_mode, str)
@@ -228,7 +233,6 @@ class MainController:
     def _on_mode_support_force(self):
         assert isinstance(self.sub_mode, str)
         self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
-        self.view.is_pressure_var.set(False)
         self.log(f"{self.mode.capitalize()} Mode: Select {self.sub_mode.capitalize()} to apply!")
 
     def _on_mode_mesh(self):
@@ -244,6 +248,11 @@ class MainController:
         self.view.mode_text_var.set(f"Utils ({self.sub_mode.capitalize()})")
         self.log(messages.get(self.sub_mode, "Utility tool active"))
     
+    def _on_mode_material(self):
+        self.view.mode_text_var.set("Material")
+        E, nu, gamma = self.model.material.as_tuple()
+        self.log(f"Current Material Properties: E=[{E}] ν=[{nu}] γ=[{gamma}]")
+
     def log(self, value:str, kind:str = "normal"):
         """
         Updates user on what's recently happened
@@ -362,10 +371,37 @@ class MainController:
         """
         force_data_to_draw = []
 
+        # get max magnitude
+        # Safely extract all absolute magnitudes
+        all_mags = [abs(pl.as_polar()[0]) for pl in self.model.forces.nodes.values()]
+        for df in self.model.forces.edges.values():
+            all_mags.append(abs(df.magnitude))
+            if df.magnitude_end is not None:
+                all_mags.append(abs(df.magnitude_end))
+
+        # Protect against empty lists
+        max_mag = max(all_mags) if all_mags else 0.0
+
+        MAX_ARROW_SIZE = 70.0  
+        MIN_ARROW_SIZE = 15.0  
+
+        # Prevent division by zero if the model has no forces, or only 0.0 value forces
+        if max_mag > 1e-6:
+            force_scale = MAX_ARROW_SIZE / max_mag
+        else:
+            force_scale = 1.0
+        
+        # define relation between force_unt and pxls
+
         for node_id, point_load in self.model.forces.nodes.items():
             node = self.model.nodes[node_id]
             px, py = self.convert_unt_to_pxls(node.x, node.y)
-            force_data_to_draw.append(((*point_load.as_polar(), point_load.m), (px, py)))
+
+            raw_size = abs(point_load.as_polar()[0]) * force_scale
+
+            size_pxls = max(MIN_ARROW_SIZE, raw_size)
+
+            force_data_to_draw.append(((*point_load.as_polar(), point_load.m), (px, py), size_pxls))
         
         for edge_id, dist_load in self.model.forces.edges.items():
             edge = self.model.edges[edge_id]
@@ -385,7 +421,7 @@ class MainController:
 
             length_pxls = length_unt * self.zoom # unt * pxl/unt
 
-            target_spacing_pxls = 50.0
+            target_spacing_pxls = 30.0
 
             num_icons = max(2, int(length_pxls / target_spacing_pxls))
 
@@ -428,8 +464,11 @@ class MainController:
                     # Standard convention for straight lines
                     normal_offset = 90 
 
+            mag_start = dist_load.magnitude
+            mag_end = dist_load.magnitude_end if dist_load.magnitude_end is not None else mag_start
+
             # 2. Format the data for the View
-            for (x, y), tangent_angle in points_and_angles:
+            for i, ((x, y), tangent_angle) in enumerate(points_and_angles):
                 px, py = self.convert_unt_to_pxls(x, y)
                 
                 # Check your DistributedLoad dataclass property
@@ -439,16 +478,26 @@ class MainController:
                 else:
                     # Pressure loads are strictly perpendicular to the curve tangent
                     final_angle = tangent_angle + normal_offset
-                    
+                
+                # interpolate trapezoidal forces
+                t = i / num_icons
+                current_mag = mag_start + t * (mag_end - mag_start)
+
+                # Apply the scale factor
+                raw_size = abs(current_mag) * force_scale
+                
+                # Ensure the arrow is at least visually readable
+                size_pxls = max(MIN_ARROW_SIZE, raw_size)
+
                 # Append in the exact format the View expects
-                force_data_to_draw.append(((dist_load.magnitude, final_angle, dist_load.moment), (px, py)))
+                force_data_to_draw.append(((current_mag, final_angle, dist_load.moment), (px, py), size_pxls))
 
         # INVOKE VIEWER
         self.view.draw_forces(force_data_to_draw)
                 
     def _draw_mesh(self):
         mesh = self.model.mesh
-        nodes_pxl = [self.convert_unt_to_pxls(*p) for p in mesh.nodes] if mesh.nodes else []
+        nodes_pxl = [self.convert_unt_to_pxls(p.x, p.y) for p in mesh.solver_nodes.values()]
         self.view.draw_mesh(nodes_pxl, mesh.triangles)
 
     def on_canvas_update(self):
@@ -643,232 +692,222 @@ class MainController:
 
     def on_left_click_canvas(self, x, y):
         x_raw, y_raw = self.convert_pxls_to_unt(x, y)
-        # apply precision
         x, y = self.apply_precision(x_raw), self.apply_precision(y_raw)
 
-        clicked_node_id = self.get_closest_node_id(x_raw, y_raw)        
+        clicked_node_id = self.get_closest_node_id(x_raw, y_raw)
 
-        match self.mode:
-            case "node":
-                if clicked_node_id is not None:
-                    self.log("Cannot create node: Too close to an existing node.", kind="warn")
-                    return
-                self.active_points.append((x, y))
-                self._commit_node()
+        # Dictionary Dispatcher
+        handlers = {
+            "node": self._handle_left_click_node,
+            "edge": self._handle_left_click_edge,
+            "support": self._handle_left_click_support,
+            "force": self._handle_left_click_force,
+            "utils": self._handle_left_click_utils,
+        }
 
+        handler = handlers.get(self.mode)
+        if handler:
+            handler(x, y, clicked_node_id)
 
-            case "edge":
-                if not clicked_node_id: return 
-                
-                if self.active_node_ids and clicked_node_id in self.active_node_ids:
-                    self.log("Node already selected!", kind="warn")
-                    return
-                
-                self.active_node_ids.append(clicked_node_id)
-                self.on_canvas_update()
-
-                if self.sub_mode == "linear":
-                    if len(self.active_node_ids) == 1:
-                        self.log("Select end node.")
-                    elif len(self.active_node_ids) == 2:
-                        self._commit_edge()
-                else: 
-                    # Parabola or Circle
-                    if len(self.active_node_ids) == 1:
-                        self.log("Select end node.")
-                    elif len(self.active_node_ids) == 2:
-                        self.log("Select the mid node to define the curve.")
-                    elif len(self.active_node_ids) == 3:
-                        self._commit_edge()
-
-            case "support":
-                if not clicked_node_id: return
-                support = self.view.get_support()
-                
-                if len(support) == 0:
-                    self.log("Select at least one support option!", "warn")
-
-                if self.sub_mode == "node":
-                    
-                    if self.model.node_has_support(clicked_node_id): 
-                        self.log("Cannot create support: Node already has a support!", kind="warn")
-                        return
-
-                    # get kind of support from view
-
-                    self._commit_support(clicked_node_id, support)
-
-                elif self.sub_mode == "edge":
-                    
-                    self.active_node_ids.append(clicked_node_id)
-
-                    if len(self.active_node_ids) == 1:
-                        self.log(f"Select another node from edge to add the support to it")
-                        self.on_canvas_update()
-
-                    elif len(self.active_node_ids) == 2:
-                        # check if edge exists
-                        edge_id = self.model.get_edge_id_by_nodes(*self.active_node_ids)
-                        
-                        if not edge_id:
-                            self.log("No edge connects these two nodes!", "warn")
-                            self.active_node_ids.clear()
-                            self.on_canvas_update()
-                            return
-                        
-                        # check if edge has support
-                        if self.model.edge_has_support((self.active_node_ids[0], self.active_node_ids[1])):
-                            self.log("Edge already has defined supports for it!", "warn")
-                            self.active_node_ids.clear()
-                            self.on_canvas_update()
-                            return
-                        
-                        self._commit_support((self.active_node_ids[0], self.active_node_ids[1]), support)
-
-            case "force":
-                if not clicked_node_id: return
-                
-                # get data on view
-                is_pressure, fx, fy, m = self.view.get_force()
-
-                if self.sub_mode == "node":
-                    if self.model.node_has_point_load(clicked_node_id): 
-                        self.log("Cannot create force: Node already has a force!", kind="warn")
-                        return
-
-                    self._commit_point_load(clicked_node_id, fx, fy, m)
-
-                elif self.sub_mode == "edge":
-                    
-                    self.active_node_ids.append(clicked_node_id)
-
-                    if len(self.active_node_ids) == 1:
-                        self.log(f"Select another node from edge to add the force to it")
-                        self.on_canvas_update()
-
-                    elif len(self.active_node_ids) == 2:
-                        # check if edge exists
-                        edge_id = self.model.get_edge_id_by_nodes(*self.active_node_ids)
-                        
-                        if not edge_id:
-                            self.log("No edge connects these two nodes!", "warn")
-                            self.active_node_ids.clear()
-                            self.on_canvas_update()
-                            return
-                        
-                        if self.model.edge_has_distributed_load((self.active_node_ids[0], self.active_node_ids[1])):
-                            self.log("Edge already has defined loads for it!", "warn")
-                            self.active_node_ids.clear()
-                            self.on_canvas_update()
-                            return
-                        
-                        magnitude = fx if is_pressure else hypot(fx, fy)
-                        global_angle = 0.0 if is_pressure else degrees(atan2(fy, fx))
-
-                        # THE MAGNITUDE INVERSION TRICK
-                        edge = self.model.edges[edge_id]
-                        
-                        # If the user clicked the nodes backwards relative to the 
-                        # edge's internal definition, flip the pressure sign
-                        if is_pressure and self.active_node_ids[0] == edge.start_node:
-                            magnitude = -magnitude
-                        
-                        self._commit_distributed_load(
-                            (self.active_node_ids[0], self.active_node_ids[1]),
-                            magnitude,
-                            moment=m,
-                            direction_type="normal" if is_pressure else "global",
-                            global_angle=global_angle
-                        )
-            case "utils":
-                if self.sub_mode == "move":
-                    
-                    # STATE 0: Select the node to move
-                    if not self.active_node_ids:
-                        if not clicked_node_id: 
-                            return # Clicked empty space, ignore
-                        
-                        # Select the node and stop execution for this click
-                        self.active_node_ids.append(clicked_node_id)
-                        self.log(f"Selected Node {clicked_node_id}. Click new location.")
-                        self.on_canvas_update()
-                        return 
-
-                    # STATE 1: Choose the destination
-                    elif len(self.active_node_ids) == 1:
-                        target_node = self.active_node_ids[0]
-                        
-                        # Case A: Clicked empty space
-                        if clicked_node_id is None:
-                            self.model.move_node(target_node, x, y)
-                            self.model.clear_mesh()
-                            self.log("Node moved!")
-                        
-                        # Case B: Clicked a DIFFERENT node
-                        elif clicked_node_id != target_node:
-                            self.log("Cannot move node: Another node is already there!", "warn")
-                            
-                        # Case C: Clicked the SAME node
-                        else:
-                            self.log("Move cancelled.")
-
-                        # In ALL three cases reset the tool
-                        self.active_node_ids.clear()
-                        self.on_canvas_update()
-                        return
-                   
-                if self.sub_mode == "split":
-                    if not clicked_node_id: return
-
-                    if self.active_node_ids and clicked_node_id in self.active_node_ids:
-                        self.log("Node already selected!", kind="warn")
-                        return
-                    
-                    self.active_node_ids.append(clicked_node_id)
-                    
-                    # 0. Wait for another click
-                    if len(self.active_node_ids) == 1:
-                        self.log("Select another node from element.")
-                        self.on_canvas_update()
-                        return
-
-                    elif len(self.active_node_ids) == 2:
-                        self._split_element((self.active_node_ids[0], self.active_node_ids[1]))
-
-                    
     def on_right_click_canvas(self, x, y):
         x_raw, y_raw = self.convert_pxls_to_unt(x, y)
-
-        print(x_raw, y_raw)
-        # apply precision
         x, y = self.apply_precision(x_raw), self.apply_precision(y_raw)
 
         clicked_node_id = self.get_closest_node_id(x_raw, y_raw)
         if not clicked_node_id: return
 
-
-
-        # left clicking deletes stuff
-        if self.mode == "node" or (self.mode in {"support", "force"} and self.sub_mode == "node"):
-            self._delete_from_model(clicked_node_id)
+        # Determine if the active tool targets a single Node or a 2-click Edge
+        is_node_target = self.mode == "node" or (self.mode in {"support", "force"} and self.sub_mode == "node")
         
+        if is_node_target:
+            self._handle_right_click_delete_node(clicked_node_id)
+        else:
+            self._handle_right_click_delete_edge(clicked_node_id)
 
-        elif self.mode == "edge" or (self.mode in {"support", "force"} and self.sub_mode == "edge"):
+    # ==========================================
+    # LEFT CLICK HANDLERS
+    # ==========================================
+
+    def _handle_left_click_node(self, x: float, y: float, clicked_node_id: int | None):
+        if clicked_node_id is not None:
+            self.log("Cannot create node: Too close to an existing node.", kind="warn")
+            return
+        
+        self.active_points.append((x, y))
+        self._commit_node()
+
+    def _handle_left_click_edge(self, x: float, y: float, clicked_node_id: int | None):
+        if not clicked_node_id: return 
+        
+        if self.active_node_ids and clicked_node_id in self.active_node_ids:
+            self.log("Node already selected!", kind="warn")
+            return
+        
+        self.active_node_ids.append(clicked_node_id)
+        self.on_canvas_update()
+
+        if self.sub_mode == "linear":
+            if len(self.active_node_ids) == 1:
+                self.log("Select end node.")
+            elif len(self.active_node_ids) == 2:
+                self._commit_edge()
+        else: 
+            if len(self.active_node_ids) == 1:
+                self.log("Select end node.")
+            elif len(self.active_node_ids) == 2:
+                self.log("Select the mid node to define the curve.")
+            elif len(self.active_node_ids) == 3:
+                self._commit_edge()
+
+    def _handle_left_click_support(self, x: float, y: float, clicked_node_id: int | None):
+        if not clicked_node_id: return
+        
+        support = self.view.get_support()
+        if len(support) == 0:
+            self.log("Select at least one support option!", "warn")
+
+        if self.sub_mode == "node":
+            if self.model.node_has_support(clicked_node_id): 
+                self.log("Cannot create support: Node already has a support!", kind="warn")
+                return
+            self._commit_support(clicked_node_id, support)
+
+        elif self.sub_mode == "edge":
+            self.active_node_ids.append(clicked_node_id)
+
+            if len(self.active_node_ids) == 1:
+                self.log("Select another node from edge to add the support to it")
+                self.on_canvas_update()
+
+            elif len(self.active_node_ids) == 2:
+                edge_id = self.model.get_edge_id_by_nodes(*self.active_node_ids)
+                
+                if not edge_id:
+                    self.log("No edge connects these two nodes!", "warn")
+                elif self.model.edge_has_support((self.active_node_ids[0], self.active_node_ids[1])):
+                    self.log("Edge already has defined supports for it!", "warn")
+                else:
+                    self._commit_support((self.active_node_ids[0], self.active_node_ids[1]), support)
+                
+                # Cleanup whether it succeeded or failed
+                if not edge_id or self.model.edge_has_support((self.active_node_ids[0], self.active_node_ids[1])):
+                    self.active_node_ids.clear()
+                    self.on_canvas_update()
+
+    def _handle_left_click_force(self, x: float, y: float, clicked_node_id: int | None):
+        if not clicked_node_id: return
+        
+        if self.sub_mode == "node":
+            fx, fy, m = self.view.get_node_force_data()
+            if self.model.node_has_point_load(clicked_node_id):
+                self.log("Cannot create force: Node already has one!", kind="warn")
+                return
+            self._commit_point_load(clicked_node_id, fx, fy, m)
+
+        elif self.sub_mode == "edge":
+            self.active_node_ids.append(clicked_node_id)
+
+            # === FIRST CLICK ===
+            if len(self.active_node_ids) == 1:
+                self.log("Select another node from the edge to apply the distributed load.")
+                self.on_canvas_update()
+
+            # === SECOND CLICK ===
+            elif len(self.active_node_ids) == 2:
+                edge_id = self.model.get_edge_id_by_nodes(*self.active_node_ids)
+                
+                if not edge_id:
+                    self.log("No edge connects these two nodes!", "warn")                
+                elif self.model.edge_has_distributed_load((self.active_node_ids[0], self.active_node_ids[1])):
+                    self.log("Edge already has defined loads for it!", "warn")
+                else:
+                    # get data from view
+                    dir_type_ui, q_start, q_end, angle, m = self.view.get_edge_force_data()
+
+                    edge = self.model.edges[edge_id]
+                    is_forward = (self.active_node_ids[0] == edge.start_node or self.active_node_ids[-1] == edge.end_node)
+
+                    # if user clicked backwards, flip trapezoid ends
+                    if not is_forward:
+                        q_start, q_end = q_end, q_start
+                        if dir_type_ui.lower() == "normal":
+                            q_start, q_end = -q_start, -q_end
+                    
+                    direction = dir_type_ui.lower()
+
+                    self._commit_distributed_load(
+                        (self.active_node_ids[0], self.active_node_ids[1]),
+                        magnitude=q_start,
+                        magnitude_end=q_end,
+                        moment=m,
+                        direction_type=direction,
+                        global_angle=angle,
+                    )
+                
+                self.active_node_ids.clear()
+                self.on_canvas_update()
+
+    def _handle_left_click_utils(self, x: float, y: float, clicked_node_id: int | None):
+        if self.sub_mode == "move":
+            if not self.active_node_ids:
+                if not clicked_node_id: return 
+                
+                self.active_node_ids.append(clicked_node_id)
+                self.log(f"Selected Node {clicked_node_id}. Click new location.")
+                self.on_canvas_update()
+                return 
+
+            elif len(self.active_node_ids) == 1:
+                target_node = self.active_node_ids[0]
+                
+                if clicked_node_id is None:
+                    self.model.move_node(target_node, x, y)
+                    self.model.clear_mesh()
+                    self.log("Node moved!")
+                elif clicked_node_id != target_node:
+                    self.log("Cannot move node: Another node is already there!", "warn")
+                else:
+                    self.log("Move cancelled.")
+
+                self.active_node_ids.clear()
+                self.on_canvas_update()
             
-            
+        elif self.sub_mode == "split":
+            if not clicked_node_id: return
             if self.active_node_ids and clicked_node_id in self.active_node_ids:
                 self.log("Node already selected!", kind="warn")
                 return
             
             self.active_node_ids.append(clicked_node_id)
-            self.on_canvas_update()
-
+            
             if len(self.active_node_ids) == 1:
-                self.log(f"Right click another node from edge to delete its {self.mode.capitalize()}.")
+                self.log("Select another node from element.")
+                self.on_canvas_update()
             elif len(self.active_node_ids) == 2:
-                nodes_to_delete = (self.active_node_ids[0], self.active_node_ids[1])
-                self.active_node_ids.clear()
-                self._delete_from_model(nodes_to_delete)
+                self._split_element((self.active_node_ids[0], self.active_node_ids[1]))
+
+
+    # ==========================================
+    # RIGHT CLICK HANDLERS
+    # ==========================================
+
+    def _handle_right_click_delete_node(self, clicked_node_id: int):
+        self._delete_from_model(clicked_node_id)
+
+    def _handle_right_click_delete_edge(self, clicked_node_id: int):
+        if self.active_node_ids and clicked_node_id in self.active_node_ids:
+            self.log("Node already selected!", kind="warn")
+            return
+        
+        self.active_node_ids.append(clicked_node_id)
+        self.on_canvas_update()
+
+        if len(self.active_node_ids) == 1:
+            self.log(f"Right click another node from edge to delete its {self.mode.capitalize()}.")
+        elif len(self.active_node_ids) == 2:
+            nodes_to_delete = (self.active_node_ids[0], self.active_node_ids[1])
+            self.active_node_ids.clear()
+            self._delete_from_model(nodes_to_delete)
 
     # ============================================
     # KEYBOARD EVENT HANDLERS
@@ -917,12 +956,6 @@ class MainController:
                     if any(len(i) > 0 for i in self.coord_buffer.values()):
                         # is typing
                         self._switch_editing_coord()
-                elif self.mode in {"support", "force"}:
-                    self.sub_mode = "node" if self.sub_mode == "edge" else "edge"
-                    assert isinstance(self.sub_mode, str)
-                    self.view.mode_text_var.set(f"{self.mode.capitalize()} ({self.sub_mode.capitalize()})")
-
-
                 
 
             case "Delete": self._delete_from_model()
@@ -1012,7 +1045,14 @@ class MainController:
     # ==========================================
     # MODEL COMMIT LOGIC
     # ==========================================
-      
+    
+    def _commit_new_material(self, E:float, nu:float, gamma:float):
+        try:
+            self.model.set_material(E, nu, gamma)
+            self.log(f"New material defined! E=[{E}] ν=[{nu}] γ=[{gamma}]")
+        except Exception as e:
+            self.log(str(e), "warn")
+
     def _commit_node(self):
         new_x, new_y = self.active_points[-1]
         self.model.add_node(float(new_x), float(new_y))
@@ -1071,20 +1111,60 @@ class MainController:
 
         self.on_canvas_update()
 
-    def _commit_distributed_load(self, node_ids: tuple[int, int], magnitude:float, moment:float, direction_type:str = "normal", global_angle:float = 0):
-        success = self.model.add_distributed_load(node_ids, magnitude, moment, direction_type, global_angle)
+    def _commit_distributed_load(
+        self, 
+        node_ids: tuple[int, int], 
+        magnitude: float, 
+        magnitude_end: float | None, 
+        moment: float, 
+        direction_type: str = "normal", 
+        global_angle: float = 0.0
+    ):
+        try:
+            # 1. Validation: Angled Trapezoidal Loads are forbidden
+            # Check if it's trapezoidal
+            is_trapezoidal = magnitude_end is not None and magnitude != magnitude_end
+            
+            if is_trapezoidal and direction_type == "global":
+                # If the angle is not a multiple of 90, both Fx and Fy were non-zero
+                if global_angle % 90 != 0:
+                    raise ValueError("Angled trapezoidal loads are not allowed. Forces must act purely in the X or Y direction.")
 
-        if success:
-            f, m = ("distributed force", f"{magnitude} > {global_angle}°") \
-                if direction_type == "global" \
-                else ("pressure", f"{magnitude}")
-            self.log(f"Defined {f} of [{m}] at Edge!")
-        else:
-            self.log(f"Something went wrong!", "warn")
+            # 2. Commit to Model (Assume it raises exceptions on failure)
+            self.model.add_distributed_load(
+                node_ids, 
+                magnitude, 
+                moment, 
+                direction_type, 
+                global_angle, 
+                magnitude_end
+            )
 
-        self.active_node_ids = []
+            # 3. Dynamic Logging
+            force_shape = "trapezoidal" if is_trapezoidal else "constant"
+            mag_text = f"{magnitude} to {magnitude_end}" if is_trapezoidal else f"{magnitude}"
 
-        self.on_canvas_update()
+            if direction_type == "global":
+                f_type = f"{force_shape} global force"
+                desc = f"[{mag_text} @ {global_angle}°]"
+            else:
+                f_type = f"{force_shape} pressure"
+                desc = f"[{mag_text}]"
+
+            if moment != 0.0:
+                desc += f" with moment [{moment}]"
+
+            self.log(f"Defined {f_type} {desc} at Edge!")
+
+        except Exception as e:
+            # Catch the ValueError we just raised, or any errors from the Model
+            self.log(str(e), "warn")
+            
+        finally:
+            # Always clean up the state, whether it succeeded or failed
+            self.active_node_ids.clear()
+            self.view.set_force_input_state("normal") # unlocks UI
+            self.on_canvas_update()
         
     def _delete_from_model(self, target: int | tuple[int, int] | None = None):
         if self.mode == "node":
@@ -1126,16 +1206,20 @@ class MainController:
             target_px_size = base_px_size * (10 ** (-slider_value / 10.0))
             actual_mesh_size = target_px_size / self.zoom
 
-            nodes_unt, triangles = mesher.generate_mesh(mesh_size=actual_mesh_size)
+            solver_nodes, triangles = mesher.generate_mesh(mesh_size=actual_mesh_size)
             
-            self.log(f"Mesh successful: {len(nodes_unt)} nodes, {len(triangles)} edges.")
+            self.log(f"Mesh successful: {len(solver_nodes)} nodes, {len(triangles)} elements.")
 
-            self.model.create_mesh(nodes_unt, triangles)
+            self.model.create_mesh(solver_nodes, triangles)
 
             self.on_canvas_update()
 
         except Exception as e:
             self.log(str(e), "warn")
+
+    def run_calculations(self):
+        if not self.model.mesh:
+            self.log("No mesh defined!", "warn")
 
     def remove_mesh(self):
         if self.model.mesh: self.model.clear_mesh()

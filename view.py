@@ -142,7 +142,7 @@ class MainView:
         self.fy_var = tk.DoubleVar(value=0.0)
         self.m_var = tk.DoubleVar(value=0.0)
 
-        for text, var in [("Fx:", self.fx_var), ("Fy:", self.fy_var), ("M:", self.node_m_var)]:
+        for text, var in [("Fx:", self.fx_var), ("Fy:", self.fy_var), ("M:", self.m_var)]:
             f = ttk.Frame(self.force_node_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -188,6 +188,27 @@ class MainView:
         )
         self.mesh_slider.pack(side="left", padx=10)
 
+        # === material items ===
+        self.material_container = ttk.Frame(toolbar)
+        self.material_container.pack(side="left", padx=10)
+        
+        self.E_double_var = tk.DoubleVar(value="1.0")
+        self.poisson_double_var = tk.DoubleVar(value="1.0")
+        self.gamma_double_var = tk.DoubleVar(value="1.0")
+
+        for text, var in [("E (Young's Module):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight):", self.gamma_double_var)]:
+            f = ttk.Frame(self.material_container)
+            f.pack(side="left", padx=5)
+            ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
+            ttk.Entry(f, textvariable=var, width=8).pack(side="left")
+
+        self.apply_material_btn = ttk.Button(
+            self.material_container,
+            text="Apply"
+        )
+        
+        self.apply_material_btn.pack(side="left", padx=10)
+        
         # on startup, mode is node
         self.set_toolbar_visibility("node")
 
@@ -234,17 +255,6 @@ class MainView:
         )
         self.log_label.pack(side="left", padx=4)
 
-    def _sync_force_submode(self, submode: str):
-        """Helper to configure the Force toolbar based on the submode."""
-        # Set the checkbox boolean (True if edge, False if node)
-        has_pressure = (submode == "edge")
-        if not has_pressure:
-            self.is_pressure_cb.pack_forget()
-        else:
-            self.is_pressure_cb.pack(side="left", before=self.fx_p_frame)
-        
-        self._pressure_cb_clicked() # update gui 
-
     def set_toolbar_visibility(self, mode: str, submode: str | None = None):
         """
         Updates the toolbar based on the active mode and submode.
@@ -253,7 +263,8 @@ class MainView:
             self.edge_container, 
             self.mesh_container, 
             self.support_container, 
-            self.force_container
+            self.force_container,
+            self.material_container,
         }
 
         # Hide everything first
@@ -265,6 +276,7 @@ class MainView:
             "mesh": self.mesh_container,
             "support": self.support_container,
             "force": self.force_container,
+            "material": self.material_container
         }
 
         active_container = mapper.get(mode)
@@ -285,6 +297,20 @@ class MainView:
         self.boundary_cb.bind(
             "<<ComboboxSelected>>",
             lambda event: callback(self.boundary_var.get())
+        )
+
+    def bind_apply_material_btn(self, callback: Callable[[float, float, float], None]):
+        
+        def internal_handler():
+            # These are now evaluated ONLY when the button is clicked!
+            E = self._safe_get_double(self.E_double_var)
+            nu = self._safe_get_double(self.poisson_double_var)
+            gamma = self._safe_get_double(self.gamma_double_var)
+            
+            callback(E, nu, gamma)
+
+        self.apply_material_btn.config(
+            command=internal_handler
         )
 
     def bind_file_change(self, callback: Callable[[str, str], None]):
@@ -316,7 +342,6 @@ class MainView:
                 )
             )
         
-
     def bind_mode_change(self, callback):
         """Passes the selected string mode and sub-mode to the controller."""
         
@@ -371,7 +396,13 @@ class MainView:
 
         self.mode_menu.add_cascade(label="Force", menu=self.force_menu)
 
-        # 5. Mesh mode
+        self.material_menu = tk.Menu(self.mode_menu)
+        self.mode_menu.add_command(
+            label="Material",
+            command=lambda: callback("material", None)
+        )
+
+        # 6. Mesh mode
         self.mode_menu.add_command(
             label="Mesh",
             command=lambda: callback("mesh", None)
@@ -493,7 +524,7 @@ class MainView:
         self.force_edge_frame.pack_forget()
 
         if submode == "node": self.force_node_frame.pack(side="left")
-        if submode == "node": self.force_edge_frame.pack(side="left")
+        if submode == "edge": self.force_edge_frame.pack(side="left")
 
     def _safe_get_double(self, var: tk.DoubleVar) -> float:
         try:

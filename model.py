@@ -47,7 +47,20 @@ class Support:
         nodes = {int(k): v for k, v in data.get("nodes", {}).items()}
         edges = {int(k): v for k, v in data.get("edges", {}).items()}
         return cls(nodes=nodes, edges=edges)
+    
+@dataclass
+class Material:
+    E:float
+    nu:float
+    gamma:float
 
+    def as_tuple(self) -> tuple[float, float, float]:
+        return (self.E, self.nu, self.gamma)
+
+    def __bool__(self):
+        return any([bool(i) for i in [self.E, self.nu]])
+
+    def as_json(self): return asdict(self)
 
 @dataclass
 class PointLoad:
@@ -57,6 +70,9 @@ class PointLoad:
 
     def __bool__(self) -> bool:
         return any([bool(i) for i in (self.fx, self.fy, self.m)])
+    
+    def as_tuple(self) -> tuple[float, float, float]:
+        return (self.fx, self.fy, self.m)
     
     def as_polar(self) -> tuple[float, float]:
         magn = hypot(self.fx, self.fy)
@@ -70,10 +86,12 @@ class PointLoad:
 
 @dataclass
 class DistributedLoad:
-    magnitude: float
+    magnitude: float # This acts as magnitude_start
     moment: float
     direction_type: Literal["normal", "global"] = "normal" 
     global_angle: float = 0.0 
+    magnitude_end: float | None = None 
+
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,28 +114,49 @@ class ForceManager:
         return cls(nodes=nodes, edges=edges)
 
 @dataclass
+class SolverNode:
+    # A lightweight object specifically for the solver
+    x: float
+    y: float
+    support: str | None = None          # e.g., "xy", "x", None
+    fx: float = 0.0
+    fy: float = 0.0
+    m: float = 0.0
+
+
+@dataclass
 class Mesh:
-    nodes: list[tuple[float, float]]
+    solver_nodes: dict[int, SolverNode]
     triangles: list[tuple[int, int, int]]
 
     def __bool__(self) -> bool:
-        return bool(self.nodes) or bool(self.triangles)
+        return bool(self.solver_nodes) or bool(self.triangles)
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
-    
+
 class FEMModel:
 
     def __init__(self):
         self.nodes:Dict[int, Node] = {}
         self.edges:Dict[int, Edge] = {}
-        self.mesh:Mesh = Mesh([], [])
+        self.mesh:Mesh = Mesh({}, [])
         self.supports:Support = Support()
         self.forces:ForceManager = ForceManager()
+        self.material:Material = Material(0.0, 0.0, 0.0)
 
         # for deletion memory
         self._node_counter = 0
         self._edge_counter = 0
+
+    def set_material(self, E:float, nu:float, gamma:float):
+        if any((i <= 1e-6 for i in {E, nu})):
+            raise ValueError("Cannot define a material with Young/Poisson equal to zero nor negative!")
+
+        if nu > 1:
+            raise ValueError("Poisson's ratio cannot be bigger than 1!")
+
+        self.material = Material(E, nu, gamma)
 
 
     def add_node(self, x:float, y:float) -> int:
@@ -376,20 +415,19 @@ class FEMModel:
         moment:float,
         direction_type: str = "normal",
         global_angle: float = 0.0,
-    ) -> bool:
+        magnitude_end: float | None = None
+    ):
         """
         Adds a distributed load to an edge.
         """
-        if direction_type not in {"normal", "global"}:
-            raise ValueError("direction_type must be 'normal' or 'global'.")
 
         if any(node not in self.nodes for node in node_ids):
-            return False
+            raise ValueError("Clicked node not defined!")
 
         edge_id = self.get_edge_id_by_nodes(*node_ids)
 
         if edge_id is None:
-            return False
+            raise ValueError("No edge is connected by these nodes!")
 
         def validate_direction(value: str) -> Literal['normal', 'global']:
             if value not in ('normal', 'global'):
@@ -401,9 +439,9 @@ class FEMModel:
             moment=moment,
             direction_type=validate_direction(direction_type),
             global_angle=global_angle,
+            magnitude_end=magnitude_end,
         )
 
-        return True
     
     def node_has_point_load(self, node_id:int) -> bool:
         return node_id in self.forces.nodes
@@ -446,22 +484,23 @@ class FEMModel:
         edge_id = self.get_edge_id_by_nodes(*node_ids)
         return edge_id in self.forces.edges
 
-    def create_mesh(self, nodes:list[tuple[float, float]], triangles:list[tuple[int, int, int]]):
+    def create_mesh(self, solver_nodes:dict[int, SolverNode], triangles:list[tuple[int, int, int]]):
         """
         Stores the generated mesh data.
         Overwrites previous mesh
         """
-        self.mesh.nodes = nodes
+        self.mesh.solver_nodes = solver_nodes
         self.mesh.triangles = triangles
 
-    def clear_mesh(self): self.mesh = Mesh(nodes=[], triangles=[])
+    def clear_mesh(self): self.mesh = Mesh(solver_nodes=[], triangles=[])
 
     def as_json(self) -> dict[str, Any]:
         """Returns the entire model state as a dictionary."""
         return {
             "nodes": {str(k): v.as_json() for k, v in self.nodes.items()},
             "edges": {str(k): v.as_json() for k, v in self.edges.items()},
-            #"mesh": self.mesh.as_json(),
+            "material": self.material.as_json(),
+            #"mesh": self.mesh.as_json(), --> disabled for being kinda useless
             "supports": self.supports.as_json(),
             "forces": self.forces.as_json(),
             "counters": {"nodes": self._node_counter, "edges": self._edge_counter}
@@ -477,6 +516,8 @@ class FEMModel:
         # Rebuild sub-objects using their dedicated builders
         self.supports = Support.from_dict(data.get("supports", {}))
         self.forces = ForceManager.from_dict(data.get("forces", {}))
+
+        self.material = Material(**data.get("material"))
         
         # Restore counters
         counters = data.get("counters", {"nodes": 0, "edges": 0})
