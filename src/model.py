@@ -494,7 +494,10 @@ class FEMModel:
         self.mesh.solver_nodes = solver_nodes
         self.mesh.triangles = triangles
 
-    def clear_mesh(self): self.mesh = Mesh({}, [])
+    def clear_mesh(self):
+        
+        self.mesh = Mesh({}, [])
+        self.results = {}
 
     def as_json(self) -> dict[str, Any]:
         """Returns the entire model state as a dictionary."""
@@ -526,7 +529,7 @@ class FEMModel:
         self._node_counter = counters.get("nodes", 0)
         self._edge_counter = counters.get("edges", 0)
 
-    def solve_mesh(self, model_type: Literal["Beam", "Plane Strain"]):
+    def solve_mesh(self, model_type: Literal["Beam", "Plane Strain", "Plane Stress"]):
         import subprocess
         import os
         
@@ -570,10 +573,11 @@ class FEMModel:
             result = subprocess.run(
                 [
                     "julia", 
-                    f"--project={project_dir}", # Tell Julia where the Project.toml is
+                    f"--project={project_dir}", 
                     script_path, 
                     input_file, 
-                    output_file
+                    output_file,
+                    model_type 
                 ],
                 capture_output=True,
                 text=True,
@@ -585,20 +589,21 @@ class FEMModel:
             if result.stdout:
                 print("Julia Output:\n", result.stdout)
             
+            # Clean up input file
             if os.path.exists(input_file):
                 os.remove(input_file)
             
+            # Read results, clean up output file
             if os.path.exists(output_file):
                 with open(output_file, "r") as f:
                     results = json.load(f)
                     self.results = results
-                    return results
-                os.remove(output_file)
+                
+                os.remove(output_file) 
+                return results
             else:
                 self.results = {}
                 return {}
-            
-                
                     
         except subprocess.CalledProcessError as e:
             print(f"Julia Solver Failed:\n{e.stderr}")

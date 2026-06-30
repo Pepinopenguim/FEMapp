@@ -472,12 +472,7 @@ class MainController:
             # 1. Pre-calculate the normal offset ONLY if it's a pressure load
             normal_offset = 0
             if dist_load.direction_type == "normal":
-                if edge.type != "linear" and edge.mid_node:
-                    is_ccw = self.math.is_curve_ccw(n_start.as_tuple(), n_mid.as_tuple(), n_end.as_tuple())
-                    normal_offset = -90 if is_ccw else 90
-                else:
-                    # Standard convention for straight lines
-                    normal_offset = 90 
+                normal_offset = 90
 
             mag_start = dist_load.magnitude
             mag_end = dist_load.magnitude_end if dist_load.magnitude_end is not None else mag_start
@@ -1332,5 +1327,6 @@ class MainController:
         try:
             self.model.solve_mesh(method)
             self.log("Done!")
+            self.on_mode_change("results", "heatmap")
         except Exception as e:
             self.log(str(e), "warn")

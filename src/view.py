@@ -142,7 +142,7 @@ class MainView:
         self.fy_var = tk.DoubleVar(value=0.0)
         self.m_var = tk.DoubleVar(value=0.0)
 
-        for text, var in [("Fx:", self.fx_var), ("Fy:", self.fy_var), ("M:", self.m_var)]:
+        for text, var in [("Fx(f):", self.fx_var), ("Fy(f):", self.fy_var), ("M(f*u):", self.m_var)]:
             f = ttk.Frame(self.force_node_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -167,7 +167,7 @@ class MainView:
         )
         self.dir_cb.pack(side="left", padx=5)
 
-        for text, var in [("Start:", self.q_start_var), ("End:", self.q_end_var), ("Ang(°):", self.edge_ang_var), ("M:", self.edge_m_var)]:
+        for text, var in [("Start(f):", self.q_start_var), ("End(f):", self.q_end_var), ("Ang(°):", self.edge_ang_var), ("M(f*u):", self.edge_m_var)]:
             f = ttk.Frame(self.force_edge_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -214,7 +214,7 @@ class MainView:
         self.poisson_double_var = tk.DoubleVar(value="0.1")
         self.gamma_double_var = tk.DoubleVar(value="0.0")
 
-        for text, var in [("E (Young's Module):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight):", self.gamma_double_var)]:
+        for text, var in [("E (Young's Module)(f/u²):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight)(f/u³):", self.gamma_double_var)]:
             f = ttk.Frame(self.material_container)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -555,7 +555,7 @@ class MainView:
             x = f">{x}<"
         else:
             y = f">{y}<"
-        self.update_status_message(f"Nova Coordenada: [{x}, {y}]", kind="input")
+        self.update_status_message(f"Nova Coordenada: [{x}, {y}] u", kind="input")
 
     def clear_misc_from_canvas(self):
         # == mouse coord ==
@@ -1093,7 +1093,7 @@ class MainView:
         
         self.canvas.create_text(
             xc + offx, yc - offy,
-            text=f"[{x}, {y}]",
+            text=f"[{x}, {y}] u",
             fill=fill,
             anchor=anchor,
             font=font,

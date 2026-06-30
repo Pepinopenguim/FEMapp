@@ -1,0 +1,158 @@
+{
+    "nodes": {
+        "1": {
+            "x": 0.0,
+            "y": 0.0
+        },
+        "2": {
+            "x": -4.0,
+            "y": -2.0
+        },
+        "3": {
+            "x": -6.0,
+            "y": 0.0
+        },
+        "4": {
+            "x": -8.0,
+            "y": 3.0
+        },
+        "5": {
+            "x": -7.0,
+            "y": 5.0
+        },
+        "6": {
+            "x": -4.0,
+            "y": 6.0
+        },
+        "7": {
+            "x": 0.0,
+            "y": 6.0
+        },
+        "8": {
+            "x": 5.0,
+            "y": 5.0
+        },
+        "9": {
+            "x": 9.0,
+            "y": 6.0
+        },
+        "10": {
+            "x": 11.0,
+            "y": 5.0
+        },
+        "11": {
+            "x": 12.0,
+            "y": 3.0
+        },
+        "12": {
+            "x": 11.0,
+            "y": 0.0
+        },
+        "13": {
+            "x": 10.0,
+            "y": -2.0
+        },
+        "14": {
+            "x": 7.0,
+            "y": -3.0
+        },
+        "15": {
+            "x": 3.0,
+            "y": -2.0
+        }
+    },
+    "edges": {
+        "1": {
+            "type": "parabola",
+            "start_node": 14,
+            "end_node": 1,
+            "mid_node": 15,
+            "boundary_group": "external"
+        },
+        "2": {
+            "type": "parabola",
+            "start_node": 1,
+            "end_node": 3,
+            "mid_node": 2,
+            "boundary_group": "external"
+        },
+        "3": {
+            "type": "parabola",
+            "start_node": 3,
+            "end_node": 5,
+            "mid_node": 4,
+            "boundary_group": "external"
+        },
+        "4": {
+            "type": "parabola",
+            "start_node": 5,
+            "end_node": 7,
+            "mid_node": 6,
+            "boundary_group": "external"
+        },
+        "5": {
+            "type": "parabola",
+            "start_node": 7,
+            "end_node": 9,
+            "mid_node": 8,
+            "boundary_group": "external"
+        },
+        "6": {
+            "type": "parabola",
+            "start_node": 9,
+            "end_node": 11,
+            "mid_node": 10,
+            "boundary_group": "external"
+        },
+        "7": {
+            "type": "parabola",
+            "start_node": 11,
+            "end_node": 13,
+            "mid_node": 12,
+            "boundary_group": "external"
+        },
+        "8": {
+            "type": "linear",
+            "start_node": 13,
+            "end_node": 14,
+            "mid_node": null,
+            "boundary_group": "external"
+        }
+    },
+    "material": {
+        "E": 1000000.0,
+        "nu": 0.2,
+        "gamma": 0.0
+    },
+    "supports": {
+        "nodes": {
+            "2": "xy",
+            "14": "xy",
+            "13": "xy",
+            "15": "xy",
+            "1": "xy",
+            "3": "xy"
+        },
+        "edges": {
+            "2": "xy",
+            "1": "xy",
+            "8": "xy"
+        }
+    },
+    "forces": {
+        "nodes": {},
+        "edges": {
+            "5": {
+                "magnitude": 1.0,
+                "moment": 0.0,
+                "direction_type": "normal",
+                "global_angle": 0.0,
+                "magnitude_end": 1.0
+            }
+        }
+    },
+    "counters": {
+        "nodes": 15,
+        "edges": 8
+    }
+}

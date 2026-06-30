@@ -282,12 +282,29 @@ if abspath(PROGRAM_FILE) == @__FILE__
     try
         input_file = ARGS[1]
         output_file = ARGS[2]
+        model_type_str = ARGS[3] 
 
-        # Trigger the solver
-        U, K, F = PlaneSolver.run_solver(input_file, PlaneSolver.PlaneStrain())
+        # Instantiate the correct physics model based on the string
+        if model_type_str == "Plane Strain"
+            physics_model = PlaneSolver.PlaneStrain()
+        elseif model_type_str == "Plane Stress"
+            physics_model = PlaneSolver.PlaneStress()
+        else
+            error("Unknown model type passed to Julia: $model_type_str")
+        end
+
+        # Trigger the solver using the dynamic model
+        U, K, F = PlaneSolver.run_solver(input_file, physics_model)
+
+        # Calculate Reactions
+        R = K * U - F
 
         open(output_file, "w") do f
-            JSON.print(f, Dict("status" => "success", "displacements" => U))
+            JSON.print(f, Dict(
+                "status" => "success", 
+                "displacements" => U,
+                "reactions" => R
+            ))
         end
         
     catch e
