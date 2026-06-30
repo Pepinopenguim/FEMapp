@@ -60,9 +60,9 @@
         }
     },
     "material": {
-        "E": 0.0,
-        "nu": 0.0,
-        "gamma": 0.0
+        "E": 1.0,
+        "nu": 0.1,
+        "gamma": 1.0
     },
     "supports": {
         "nodes": {

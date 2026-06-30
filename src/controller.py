@@ -83,6 +83,9 @@ class MainController:
         self.view.bind_apply_material_btn(self._commit_new_material)
         self.view.bind_run_solver_btn(self.run_calculations)
 
+        # results
+        self.view.bind_results_scale(self.on_canvas_update)
+
     # ============================================
     # MATH & COORDINATE UTILITIES
     # ============================================
@@ -177,6 +180,7 @@ class MainController:
             "mesh": self._on_mode_mesh,
             "utils": self._on_mode_utils,
             "material": self._on_mode_material,
+            "results": self._on_mode_results,
         }
 
         # Route the execution
@@ -253,6 +257,16 @@ class MainController:
         self.view.mode_text_var.set("Material")
         E, nu, gamma = self.model.material.as_tuple()
         self.log(f"Current Material Properties: E=[{E}] ν=[{nu}] γ=[{gamma}]")
+
+    def _on_mode_results(self):
+        if not self.model.results:
+            self.log("No results available. Please run the solver first!", "warn")
+            self.mode = "node" # Kick them back
+            return
+            
+        self.view.mode_text_var.set(f"📊 Results ({self.sub_mode.capitalize()})")
+        self.log(f"Viewing {self.sub_mode.capitalize()}. Adjust scale slider to exaggerate.")
+        self.on_canvas_update()
 
     def log(self, value:str, kind:str = "normal"):
         """
@@ -501,6 +515,93 @@ class MainController:
         nodes_pxl = [self.convert_unt_to_pxls(p.x, p.y) for p in mesh.solver_nodes.values()]
         self.view.draw_mesh(nodes_pxl, mesh.triangles)
 
+    def _draw_results(self):
+        """Processes Julia arrays and sends them to the view."""
+
+        # force clearing of results
+        self.view.canvas.delete("results")
+
+        if not self.model.results or self.mode != "results":
+            return
+
+        U = self.model.results["displacements"]
+        R = self.model.results.get("reactions", [])
+        
+        displacements = {}
+        reactions = {}
+        max_disp = 0.0
+
+        # Node ID 'n' maps to U[2n] for X, and U[2n+1] for Y.
+        for node_id, solver_node in self.model.mesh.solver_nodes.items():
+            idx_x = 2 * node_id
+            idx_y = 2 * node_id + 1
+            
+            # Extract displacements
+            dx, dy = U[idx_x], U[idx_y]
+            displacements[node_id] = (dx, dy)
+            max_disp = max(max_disp, hypot(dx, dy))
+
+            # Extract reactions (if support exists)
+            if solver_node.support and R:
+                rx, ry = R[idx_x], R[idx_y]
+                reactions[node_id] = (rx, ry)
+
+        max_displacement_pxls = self.view.scale_slider_var.get()
+
+        if max_disp > 1e-12:
+            scale_factor = max_displacement_pxls / max_disp
+        else:
+            scale_factor = 0.0
+
+        nodes_pxl = {nid: self.convert_unt_to_pxls(n.x, n.y) for nid, n in self.model.mesh.solver_nodes.items()}
+        
+        polygons_to_draw = []
+
+        for n1, n2, n3 in self.model.mesh.triangles:
+            p1, p2, p3 = nodes_pxl[n1], nodes_pxl[n2], nodes_pxl[n3]
+            d1, d2, d3 = displacements[n1], displacements[n2], displacements[n3]
+
+            # Apply the scale_factor, NOT the raw pixel value
+            p1_def = (p1[0] + d1[0] * scale_factor, p1[1] - d1[1] * scale_factor)
+            p2_def = (p2[0] + d2[0] * scale_factor, p2[1] - d2[1] * scale_factor)
+            p3_def = (p3[0] + d3[0] * scale_factor, p3[1] - d3[1] * scale_factor)
+            
+            # Flatten into a single tuple for the canvas
+            flat_coords = (*p1_def, *p2_def, *p3_def)
+
+            # Determine Color
+            fill_color = ""
+            outline_color = "#00ff0d" # Bright Green default
+
+            if self.sub_mode == "heatmap":
+                avg_mag = (hypot(*d1) + hypot(*d2) + hypot(*d3)) / 3.0
+                ratio = min(1.0, avg_mag / max_disp) if max_disp > 0 else 0.0
+                
+                # LERP Color: Green to Red
+                r = int(255 * ratio)
+                g = int(255 * (1 - ratio))
+                fill_color = f"#{r:02x}{g:02x}00" 
+                outline_color = fill_color
+
+            polygons_to_draw.append((flat_coords, outline_color, fill_color))
+
+        # Send fully processed data to the View
+        self.view.draw_results(polygons_to_draw)
+
+        # Draw Reactions (if sub_mode requires it)
+        if self.sub_mode == "reactions":
+            reaction_data = []
+            for nid, (rx, ry) in reactions.items():
+                if hypot(rx, ry) > 1e-6: # Ignore zero-forces
+                    px, py = nodes_pxl[nid]
+                    angle = degrees(atan2(ry, rx))
+                    # Reusing your excellent force helper!
+                    reaction_data.append(((hypot(rx, ry), angle, 0.0), (px, py), 40.0))
+            
+            # Send them to the existing force drawer
+            self.view.draw_forces(reaction_data)
+
+
     def on_canvas_update(self):
         # get canvas info
         cw = self.view.canvas.winfo_width()
@@ -508,8 +609,6 @@ class MainController:
         # update where is the center of the canvas
         self.canvas_offset_xc = cw / 2
         self.canvas_offset_yc = ch / 2
-
-        # clear misc edges
 
         # define pan offset in pixels
         pixel_shift_x = self.pan_offset_x * self.zoom
@@ -533,6 +632,7 @@ class MainController:
         self._draw_supports()
         self._draw_forces()
         self._draw_mesh()
+        self._draw_results()
         
     # ============================================
     # MOUSE EVENT HANDLERS
@@ -1228,5 +1328,9 @@ class MainController:
             self.log("No material defined!")
             return
 
-        self.log("Trying to solve!")
-        self.model.solve_mesh(method)
+        self.log("Trying to solve! (This may take a while on first run.)")
+        try:
+            self.model.solve_mesh(method)
+            self.log("Done!")
+        except Exception as e:
+            self.log(str(e), "warn")

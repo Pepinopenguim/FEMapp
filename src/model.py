@@ -145,6 +145,7 @@ class FEMModel:
         self.supports:Support = Support()
         self.forces:ForceManager = ForceManager()
         self.material:Material = Material(0.0, 0.0, 0.0)
+        self.results: dict[str, Any] = {}
 
         # for deletion memory
         self._node_counter = 0
@@ -552,6 +553,20 @@ class FEMModel:
         script_path = os.path.join(project_dir, script_name)
 
         try:
+            # guarantee enviroment is instantiated
+            subprocess.run(
+                [
+                    "julia", 
+                    f"--project={project_dir}", 
+                    "-e", 
+                    "using Pkg; Pkg.instantiate()"
+                ],
+                capture_output=True,
+                check=True
+            )
+
+            print("Finished download.")
+
             result = subprocess.run(
                 [
                     "julia", 
@@ -565,14 +580,27 @@ class FEMModel:
                 check=True
             )
 
+            print("Calculations done.")
+
             if result.stdout:
                 print("Julia Output:\n", result.stdout)
+            
+            if os.path.exists(input_file):
+                os.remove(input_file)
             
             if os.path.exists(output_file):
                 with open(output_file, "r") as f:
                     results = json.load(f)
+                    self.results = results
                     return results
+                os.remove(output_file)
+            else:
+                self.results = {}
+                return {}
+            
+                
                     
         except subprocess.CalledProcessError as e:
             print(f"Julia Solver Failed:\n{e.stderr}")
+            self.results = {}
             raise Exception(f"Solver Error: {e.stderr}")

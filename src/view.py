@@ -195,7 +195,8 @@ class MainView:
             state="readonly",
             values=[
                 "Plane Strain",
-                "Beam"
+                "Plane Stress",
+                "Beam",
             ]
         ).pack(side="left", padx=10)
 
@@ -210,8 +211,8 @@ class MainView:
         self.material_container.pack(side="left", padx=10)
         
         self.E_double_var = tk.DoubleVar(value="1.0")
-        self.poisson_double_var = tk.DoubleVar(value="1.0")
-        self.gamma_double_var = tk.DoubleVar(value="1.0")
+        self.poisson_double_var = tk.DoubleVar(value="0.1")
+        self.gamma_double_var = tk.DoubleVar(value="0.0")
 
         for text, var in [("E (Young's Module):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight):", self.gamma_double_var)]:
             f = ttk.Frame(self.material_container)
@@ -225,6 +226,17 @@ class MainView:
         )
         
         self.apply_material_btn.pack(side="left", padx=10)
+
+        # == results ==
+        self.results_container = tk.Frame(toolbar)
+
+        ttk.Label(self.results_container, text="Scale:").pack(side="left")
+        self.scale_slider_var = tk.DoubleVar() # defines pxl size of max displacement
+        self.scale_slider = ttk.Scale(
+            self.results_container, from_=1.0, to=300.0, 
+            orient="horizontal", variable=self.scale_slider_var, length=150
+        )
+        self.scale_slider.pack(side="left", padx=10)
         
         # on startup, mode is node
         self.set_toolbar_visibility("node")
@@ -282,6 +294,7 @@ class MainView:
             self.support_container, 
             self.force_container,
             self.material_container,
+            self.results_container
         }
 
         # Hide everything first
@@ -293,7 +306,8 @@ class MainView:
             "mesh": self.mesh_container,
             "support": self.support_container,
             "force": self.force_container,
-            "material": self.material_container
+            "material": self.material_container,
+            "results": self.results_container,
         }
 
         active_container = mapper.get(mode)
@@ -448,6 +462,17 @@ class MainView:
             command=lambda: callback("mesh", None)
         )
 
+        # 8. results
+        self.results_menu = tk.Menu(self.mode_menu, tearoff=False)
+        self.results_menu.add_command(label="Deformed Shape", command=lambda: callback("results", "deformed"))
+        self.results_menu.add_command(label="Heatmap", command=lambda: callback("results", "heatmap"))
+        self.results_menu.add_command(label="Reactions", command=lambda: callback("results", "reactions"))
+        self.mode_menu.add_cascade(label="Results", menu=self.results_menu)
+
+    def bind_results_scale(self, callback):
+        self.scale_slider.config(
+            command= lambda _: callback()
+        )
 
     def bind_canvas_click(self, callback):
         """
@@ -1032,6 +1057,26 @@ class MainView:
             )
 
         self.canvas.tag_raise("force")
+
+    def draw_results(self, polygons_to_draw: list[tuple[tuple[float, ...], str, str]]):
+        """
+        Draws the pre-calculated results polygons.
+        polygons_to_draw format: [((x1, y1, x2, y2, x3, y3), outline_hex, fill_hex), ...]
+        """
+        self.canvas.delete("results")
+        self.canvas.delete("mesh") # Hide standard mesh
+
+        for coords, outline_color, fill_color in polygons_to_draw:
+            self.canvas.create_polygon(
+                *coords,
+                outline=outline_color, 
+                fill=fill_color, 
+                width=1, 
+                tags="results"
+            )
+        
+        self.canvas.tag_lower("results")
+        self.canvas.tag_lower("grid")
 
     def write_coordinate(
             self,
