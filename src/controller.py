@@ -473,7 +473,6 @@ class MainController:
             normal_offset = 0
             if dist_load.direction_type == "normal":
                 normal_offset = 90
-
             mag_start = dist_load.magnitude
             mag_end = dist_load.magnitude_end if dist_load.magnitude_end is not None else mag_start
 

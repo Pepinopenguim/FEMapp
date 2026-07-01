@@ -100,14 +100,12 @@ function get_B_matrix_3_node_triangle(C::Matrix{Float64})
          0  1  # dN3/dxi, dN3/deta
     ]
 
-    # J = [dx/dxi  dy/dxi; dx/deta dy/deta]
     # For linear triangles, J = C' * dNdξ
     J = Jacobian_3_node_triangle(C)
     
     # Invert the Jacobian
     J_inv = inv(J)
     
-    # This results in a 3x2 matrix where each row i corresponds to [dN_i/dx, dN_i/dy]
     dN_dxdy = dNdξ * J_inv
     
     # Pre-allocate the 3x6 B matrix
@@ -154,6 +152,47 @@ function get_element_stiffness(
     # Return K_e = transpose(B) * D * B * Area
     return B' * D * B * A # (Thickness 'h' is assumed to be 1.0 for standard plane strain)
 
+end
+
+function get_element_stresses(
+    model::Union{PlaneStrain, PlaneStress},
+    U::Vector{Float64},
+    elem::Element,
+    material::Material,
+    nodes::Dict{Int, Node},
+)
+    # Define coordinates
+    C = [
+    nodes[elem.n1].x nodes[elem.n1].y;
+    nodes[elem.n2].x nodes[elem.n2].y;
+    nodes[elem.n3].x nodes[elem.n3].y;
+    ]
+
+    # Define B matrix
+    B = get_B_matrix_3_node_triangle(C)
+
+    # get displacements of elem
+    # Note: only valid for 3-node triangles
+    node_ids = [elem.n1, elem.n2, elem.n3]
+    U_e = zeros(6)
+    
+    for (i, nid) in enumerate(node_ids)
+        idx_x = 2 * nid - 1
+        idx_y = 2 * nid
+        
+        
+        U_e[2*i - 1] = U[idx_x]
+        U_e[2*i]     = U[idx_y]
+    end
+
+    # Calculate Strain: ε = B * U_e
+    ε = B * U_e
+
+    # Calculate Stress: σ = D * ε
+    D = get_D(model, material)
+    σ = D * ε
+
+    return σ
 end
 
 function get_dofs_for_element(elem::Element)    
