@@ -338,11 +338,15 @@ if abspath(PROGRAM_FILE) == @__FILE__
         # Calculate Reactions
         R = K * U - F
 
+        # Calculate stresses
+        S = get_element_stresses()
+
         open(output_file, "w") do f
             JSON.print(f, Dict(
                 "status" => "success", 
                 "displacements" => U,
-                "reactions" => R
+                "reactions" => R,
+                "stresses" => S,
             ))
         end
         

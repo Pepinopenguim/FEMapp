@@ -1315,6 +1315,7 @@ class MainController:
         if self.model.mesh: self.model.clear_mesh()
         
     def run_calculations(self, method:str):
+        import traceback
         if not self.model.mesh:
             self.log("No mesh defined!", "warn")
             return
@@ -1324,8 +1325,9 @@ class MainController:
 
         self.log("Trying to solve! (This may take a while on first run.)")
         try:
-            self.model.solve_mesh(method)
-            self.log("Done!")
+            time_passed = self.model.solve_mesh(method)
+            self.log(f"Done! Calculations took {time_passed} seconds.")
             self.on_mode_change("results", "heatmap")
         except Exception as e:
+            print(traceback.format_exc())
             self.log(str(e), "warn")

@@ -142,7 +142,7 @@ class MainView:
         self.fy_var = tk.DoubleVar(value=0.0)
         self.m_var = tk.DoubleVar(value=0.0)
 
-        for text, var in [("Fx(f):", self.fx_var), ("Fy(f):", self.fy_var), ("M(f*u):", self.m_var)]:
+        for text, var in [("Fx [f]:", self.fx_var), ("Fy [f]:", self.fy_var), ("M [f*u]:", self.m_var)]:
             f = ttk.Frame(self.force_node_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -167,7 +167,7 @@ class MainView:
         )
         self.dir_cb.pack(side="left", padx=5)
 
-        for text, var in [("Start(f):", self.q_start_var), ("End(f):", self.q_end_var), ("Ang(°):", self.edge_ang_var), ("M(f*u):", self.edge_m_var)]:
+        for text, var in [("Start [f]:", self.q_start_var), ("End [f]:", self.q_end_var), ("Ang [°]:", self.edge_ang_var), ("M [f*u]:", self.edge_m_var)]:
             f = ttk.Frame(self.force_edge_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -210,9 +210,9 @@ class MainView:
         self.material_container = ttk.Frame(toolbar)
         self.material_container.pack(side="left", padx=10)
         
-        self.E_double_var = tk.DoubleVar(value="1.0")
-        self.poisson_double_var = tk.DoubleVar(value="0.1")
-        self.gamma_double_var = tk.DoubleVar(value="0.0")
+        self.E_double_var = tk.DoubleVar(value=1.0)
+        self.poisson_double_var = tk.DoubleVar(value=0.1)
+        self.gamma_double_var = tk.DoubleVar(value=0.0)
 
         for text, var in [("E (Young's Module)(f/u²):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight)(f/u³):", self.gamma_double_var)]:
             f = ttk.Frame(self.material_container)

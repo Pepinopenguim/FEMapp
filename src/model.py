@@ -152,11 +152,11 @@ class FEMModel:
         self._edge_counter = 0
 
     def set_material(self, E:float, nu:float, gamma:float):
-        if any((i <= 1e-6 for i in {E, nu})):
-            raise ValueError("Cannot define a material with Young/Poisson equal to zero nor negative!")
+        if E < 1e-6:
+            raise ValueError("Cannot define a material with Young equal to zero nor negative!")
 
-        if nu > .5:
-            raise ValueError("Poisson's ratio cannot be bigger than 0.5!")
+        if nu > .5 or nu < -1:
+            raise ValueError("Poisson's ratio cannot be bigger than 0.5 or lesser than -1!")
 
         self.material = Material(E, nu, gamma)
 
@@ -529,9 +529,12 @@ class FEMModel:
         self._node_counter = counters.get("nodes", 0)
         self._edge_counter = counters.get("edges", 0)
 
-    def solve_mesh(self, model_type: Literal["Beam", "Plane Strain", "Plane Stress"]):
+    def solve_mesh(self, model_type: Literal["Beam", "Plane Strain", "Plane Stress"]) -> float:
         import subprocess
         import os
+        from time import time
+        
+        before = time()
         
         if not self.mesh:
             raise Exception("Warning: No mesh exists. Cannot run solver.")
@@ -554,6 +557,7 @@ class FEMModel:
         # Paths
         project_dir = os.path.join(base_dir, "solver")
         script_path = os.path.join(project_dir, script_name)
+        
 
         try:
             # guarantee enviroment is instantiated
@@ -600,10 +604,10 @@ class FEMModel:
                     self.results = results
                 
                 os.remove(output_file) 
-                return results
+                return time() - before
             else:
                 self.results = {}
-                return {}
+                return time() - before
                     
         except subprocess.CalledProcessError as e:
             print(f"Julia Solver Failed:\n{e.stderr}")
