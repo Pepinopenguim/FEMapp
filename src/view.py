@@ -130,7 +130,7 @@ class MainView:
             variable=self.fix_z_var,
             command=self._support_var_helper
         )
-        for widget in [self.fix_x_cb, self.fix_y_cb, self.fix_z_cb]: widget.pack(side="left", padx=(5, 0))
+        for widget in [self.fix_x_cb, self.fix_y_cb]: widget.pack(side="left", padx=(5, 0))
 
         # === force items ===
         self.force_container = ttk.Frame(toolbar)
@@ -140,9 +140,11 @@ class MainView:
 
         self.fx_var = tk.DoubleVar(value=0.0)
         self.fy_var = tk.DoubleVar(value=0.0)
-        self.m_var = tk.DoubleVar(value=0.0)
+        self.m_var = tk.DoubleVar(value=0.0) 
+        # NOTE - Removed from software because is never actually used
+        # kept in case i want to define a beam solver
 
-        for text, var in [("Fx [f]:", self.fx_var), ("Fy [f]:", self.fy_var), ("M [f*u]:", self.m_var)]:
+        for text, var in [("Fx [f]:", self.fx_var), ("Fy [f]:", self.fy_var)]:
             f = ttk.Frame(self.force_node_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -167,7 +169,7 @@ class MainView:
         )
         self.dir_cb.pack(side="left", padx=5)
 
-        for text, var in [("Start [f]:", self.q_start_var), ("End [f]:", self.q_end_var), ("Ang [°]:", self.edge_ang_var), ("M [f*u]:", self.edge_m_var)]:
+        for text, var in [("Start [f]:", self.q_start_var), ("End [f]:", self.q_end_var), ("Ang [°]:", self.edge_ang_var),]:
             f = ttk.Frame(self.force_edge_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -196,7 +198,6 @@ class MainView:
             values=[
                 "Plane Strain",
                 "Plane Stress",
-                "Beam",
             ]
         ).pack(side="left", padx=10)
 
@@ -464,9 +465,9 @@ class MainView:
 
         # 8. results
         self.results_menu = tk.Menu(self.mode_menu, tearoff=False)
-        self.results_menu.add_command(label="Deformed Shape", command=lambda: callback("results", "deformed"))
-        self.results_menu.add_command(label="Heatmap", command=lambda: callback("results", "heatmap"))
-        self.results_menu.add_command(label="Reactions", command=lambda: callback("results", "reactions"))
+        self.results_menu.add_command(label="Nodes", command=lambda: callback("results", "nodes"))
+        self.results_menu.add_command(label="Displacements", command=lambda: callback("results", "displacement"))
+        self.results_menu.add_command(label="Stress", command=lambda: callback("results", "stress"))
         self.mode_menu.add_cascade(label="Results", menu=self.results_menu)
 
     def bind_results_scale(self, callback):
@@ -595,7 +596,7 @@ class MainView:
             self._safe_get_double(self.m_var),
         )
     
-    def get_edge_force_data(self) -> tuple[str, float, float, float]:
+    def get_edge_force_data(self) -> tuple[str, float, float, float, float]:
         return (
             self.edge_dir_var.get(),
             self._safe_get_double(self.q_start_var),
@@ -886,6 +887,42 @@ class MainView:
         # Push the mesh to the back so it doesn't cover your main drawing lines!
         self.canvas.tag_lower("mesh")
         self.canvas.tag_lower("grid") 
+
+    def draw_hover_box(self, xc: float, yc: float, text: str):
+        """Draws a floating tooltip box near the cursor with dynamic information."""
+        self.canvas.delete("hover_info")
+        
+        # Draw the text first (offset slightly from the cursor)
+        text_id = self.canvas.create_text(
+            xc + 15, yc + 15,  
+            text=text,
+            anchor="nw",
+            fill="white",
+            font=("Consolas", 10),
+            tags="hover_info"
+        )
+        
+        # Get the bounding box of the generated text
+        bbox = self.canvas.bbox(text_id)
+        if bbox:
+            pad = 6
+            x1, y1, x2, y2 = bbox
+            
+            # Draw a dark background rectangle slightly larger than the text
+            self.canvas.create_rectangle(
+                x1 - pad, y1 - pad, x2 + pad, y2 + pad,
+                fill="#222222",
+                outline="#00ff0d", 
+                width=1,
+                tags="hover_info_bg"
+            )
+            
+            # Push the background behind the text, and group them together
+            self.canvas.tag_lower("hover_info_bg", text_id)
+            self.canvas.addtag_withtag("hover_info", "hover_info_bg")
+            
+            # Ensure it always renders on top of the mesh/results
+            self.canvas.tag_raise("hover_info")
         
     def _draw_support_helper(self, support:str, at:Tuple[float, float], size:float = 15, fill:str = "#00ff0d", tags:str = "support"):
         """

@@ -82,7 +82,7 @@ function get_D(model::PlaneStrain, mat::Material)
     ]
 end
 
-function Jacobian_3_node_triangle(C::Matrix{Float64})
+function Jacobian_CST(C::Matrix{Float64})
     dNdξ = [
         -1 -1;
          1  0;
@@ -101,7 +101,7 @@ function get_B_matrix_3_node_triangle(C::Matrix{Float64})
     ]
 
     # For linear triangles, J = C' * dNdξ
-    J = Jacobian_3_node_triangle(C)
+    J = Jacobian_CST(C)
     
     # Invert the Jacobian
     J_inv = inv(J)
@@ -141,7 +141,7 @@ function get_element_stiffness(
     ]
 
     # Calculate Area 
-    A = abs(det(Jacobian_3_node_triangle(C))) / 2
+    A = abs(det(Jacobian_CST(C))) / 2
 
     # Build the B matrix (Strain-Displacement)
     B = get_B_matrix_3_node_triangle(C)
@@ -154,45 +154,46 @@ function get_element_stiffness(
 
 end
 
-function get_element_stresses(
+function get_global_stresses(
     model::Union{PlaneStrain, PlaneStress},
     U::Vector{Float64},
-    elem::Element,
+    elements::Vector{Element},
     material::Material,
     nodes::Dict{Int, Node},
 )
-    # Define coordinates
-    C = [
-    nodes[elem.n1].x nodes[elem.n1].y;
-    nodes[elem.n2].x nodes[elem.n2].y;
-    nodes[elem.n3].x nodes[elem.n3].y;
-    ]
-
-    # Define B matrix
-    B = get_B_matrix_3_node_triangle(C)
-
-    # get displacements of elem
-    # Note: only valid for 3-node triangles
-    node_ids = [elem.n1, elem.n2, elem.n3]
-    U_e = zeros(6)
+    # Pre-allocate a vector of 3x1 vectors to store stress for each element
+    num_elements = length(elements)
+    global_stresses = Vector{Vector{Float64}}(undef, num_elements)
     
-    for (i, nid) in enumerate(node_ids)
-        idx_x = 2 * nid - 1
-        idx_y = 2 * nid
+    # Calculate Material Stiffness Matrix 
+    # will not change per element
+    D = get_D(model, material)
+
+    for (i, elem) in enumerate(elements)
+        # Define coordinate matrix
+        C = [
+            nodes[elem.n1].x nodes[elem.n1].y;
+            nodes[elem.n2].x nodes[elem.n2].y;
+            nodes[elem.n3].x nodes[elem.n3].y;
+        ]
         
+        # Define B matrix
+        B = get_B_matrix_3_node_triangle(C)
         
-        U_e[2*i - 1] = U[idx_x]
-        U_e[2*i]     = U[idx_y]
+        # Get displacements for this element
+        U_e = zeros(6)
+        node_ids = [elem.n1, elem.n2, elem.n3]
+        for (j, nid) in enumerate(node_ids)
+            U_e[2*j - 1] = U[2 * nid - 1]
+            U_e[2*j]     = U[2 * nid]
+        end
+
+        # Define tensions
+        ε = B * U_e
+        global_stresses[i] = D * ε 
     end
 
-    # Calculate Strain: ε = B * U_e
-    ε = B * U_e
-
-    # Calculate Stress: σ = D * ε
-    D = get_D(model, material)
-    σ = D * ε
-
-    return σ
+    return global_stresses #(vector of vectors)
 end
 
 function get_dofs_for_element(elem::Element)    
@@ -261,8 +262,23 @@ function assemble_system(model::Union{PlaneStrain, PlaneStress}, mat::Material, 
     for elem in elements
 
         K_e = get_element_stiffness(model, elem, nodes, mat)
-
         dofs = get_dofs_for_element(elem)
+
+        # define self-Weight
+        C = [
+            nodes[elem.n1].x nodes[elem.n1].y;
+            nodes[elem.n2].x nodes[elem.n2].y;
+            nodes[elem.n3].x nodes[elem.n3].y;
+        ]
+
+        A = abs(det(Jacobian_CST(C))) / 2
+
+        node_weight = (A * mat.gamma) / 3.0
+
+        # Apply forces to even indexes i.e. y forces
+        F[dofs[2]] -= node_weight
+        F[dofs[4]] -= node_weight
+        F[dofs[6]] -= node_weight
 
         for r in 1:6
             for c in 1:6
@@ -304,7 +320,9 @@ function run_solver(filepath::String, model::Union{PlaneStrain, PlaneStress})
     # solve linear system
     U = K_sys \ F_sys
 
-    return U, K, F
+    S = get_global_stresses(model, U, elems, mat, nodes)
+
+    return U, K, F, S
     
 end
 
@@ -333,13 +351,10 @@ if abspath(PROGRAM_FILE) == @__FILE__
         end
 
         # Trigger the solver using the dynamic model
-        U, K, F = PlaneSolver.run_solver(input_file, physics_model)
+        U, K, F, S = PlaneSolver.run_solver(input_file, physics_model)
 
         # Calculate Reactions
         R = K * U - F
-
-        # Calculate stresses
-        S = get_element_stresses()
 
         open(output_file, "w") do f
             JSON.print(f, Dict(

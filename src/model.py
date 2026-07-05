@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field, asdict
+import enum
 from typing import Dict, Optional, Literal, Any
 from math import hypot, atan2, degrees
 from src.curve import CurveHelper
@@ -327,6 +328,39 @@ class FEMModel:
 
         return True
 
+    def is_point_inside_CST(self, x:float, y:float) -> None | int:
+        """
+        Loops through CST's in results, if found, returns that CST
+        """
+        if not self.mesh or not self.mesh.triangles:
+            return None
+
+        # Helper to calculate the 2D cross product
+        def sign(p1x, p1y, p2x, p2y, p3x, p3y):
+            return (p1x - p3x) * (p2y - p3y) - (p2x - p3x) * (p1y - p3y)
+        
+        nodes = self.mesh.solver_nodes
+
+        for i, (n1, n2, n3) in enumerate(self.mesh.triangles):
+            # Fetch coordinates
+            x1, y1 = nodes[n1].x, nodes[n1].y
+            x2, y2 = nodes[n2].x, nodes[n2].y
+            x3, y3 = nodes[n3].x, nodes[n3].y
+
+            # Check the point against all three edges
+            d1 = sign(x, y, x1, y1, x2, y2)
+            d2 = sign(x, y, x2, y2, x3, y3)
+            d3 = sign(x, y, x3, y3, x1, y1)
+
+            has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+            has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+
+            # If the point is strictly on one side of all edges, it's inside
+            if not (has_neg and has_pos):
+                return i  # Return the index of the matched triangle
+
+        return None
+
     def get_edge_id_by_nodes(self, n1_id: int, n2_id: int) -> int | None:
         """Helper method: Finds an edge ID that shares the two given nodes."""
         for edge_id, edge in self.edges.items():
@@ -572,8 +606,6 @@ class FEMModel:
                 check=True
             )
 
-            print("Finished download.")
-
             result = subprocess.run(
                 [
                     "julia", 
@@ -587,8 +619,6 @@ class FEMModel:
                 text=True,
                 check=True
             )
-
-            print("Calculations done.")
 
             if result.stdout:
                 print("Julia Output:\n", result.stdout)

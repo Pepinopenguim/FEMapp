@@ -1,11 +1,78 @@
+from os import close
 from typing import Tuple
 from src.view import MainView
-from src.model import FEMModel, Edge
-from math import hypot, degrees, atan2
+from src.model import FEMModel, Mesh
+from math import hypot, degrees, atan2, sqrt
 import numpy as np
 from src.mesh import MeshEngine
 from src.curve import CurveHelper
 import json
+
+class HeatmapData:
+    def __init__(self, results: dict, mesh: Mesh):
+        self.displacements = {}
+        self.vm_stresses = {}
+        self.max_disp = 0.0
+        self.max_stress = 0.0
+        self.min_stress = float('inf')
+
+        U = results.get("displacements", [])
+        S = results.get("stresses", [])
+
+        # Process Displacements
+        for node_id in mesh.solver_nodes:
+            dx, dy = U[2 * node_id], U[2 * node_id + 1] 
+            self.displacements[node_id] = (dx, dy)
+            self.max_disp = max(self.max_disp, hypot(dx, dy))
+
+        # Process Stresses (Von Mises)
+        # stored as list of lists
+        for i, stress in enumerate(S):
+            if len(stress) >= 3:
+                sx, sy, txy = stress[0], stress[1], stress[2]
+                # Von Mises algebraic formula for Plane Stress/Strain
+                # max(0, ...) protects against floating point inaccuracies
+                vm = sqrt(max(0, sx**2 - sx*sy + sy**2 + 3 * txy**2))
+                self.vm_stresses[i] = vm
+                self.max_stress = max(self.max_stress, vm)
+                self.min_stress = min(self.min_stress, vm)
+            else:
+                self.vm_stresses[i] = 0.0
+                self.min_stress = 0.0
+        
+        # Failsafe if mesh has no stresses
+        if self.min_stress == float('inf'):
+            self.min_stress = 0.0
+
+    def get_deformed_coords(self, n1, n2, n3, p1, p2, p3, scale_factor):
+        """Calculates the scaled visual displacement coordinates"""
+        d1, d2, d3 = self.displacements[n1], self.displacements[n2], self.displacements[n3]
+        
+        # Remember: Tkinter Y is inverted, so we subtract dy
+        p1_def = (p1[0] + d1[0] * scale_factor, p1[1] - d1[1] * scale_factor)
+        p2_def = (p2[0] + d2[0] * scale_factor, p2[1] - d2[1] * scale_factor)
+        p3_def = (p3[0] + d3[0] * scale_factor, p3[1] - d3[1] * scale_factor)
+        
+        return (*p1_def, *p2_def, *p3_def)
+
+    def _lerp_color(self, ratio: float) -> str:
+        """Linear interpolation from Green (0) to Red (1)"""
+        ratio = max(0.0, min(1.0, ratio))
+        r = int(255 * ratio)
+        g = int(255 * (1 - ratio))
+        return f"#{r:02x}{g:02x}00"
+
+    def get_disp_color(self, n1, n2, n3) -> str:
+        d1, d2, d3 = self.displacements[n1], self.displacements[n2], self.displacements[n3]
+        avg_mag = (hypot(*d1) + hypot(*d2) + hypot(*d3)) / 3.0
+        ratio = (avg_mag / self.max_disp) if self.max_disp > 1e-12 else 0.0
+        return self._lerp_color(ratio)
+
+    def get_stress_color(self, element_idx: int) -> str:
+        vm = self.vm_stresses.get(element_idx, 0.0)
+        span = self.max_stress - self.min_stress
+        ratio = ((vm - self.min_stress) / span) if span > 1e-12 else 0.0
+        return self._lerp_color(ratio)
 
 class MainController:
 
@@ -50,6 +117,8 @@ class MainController:
         self._bind_view_events()
 
         self.math = CurveHelper
+
+        self.heatmap_data: HeatmapData | None = None
 
 
         # log of initialization
@@ -102,10 +171,10 @@ class MainController:
         yc = self.canvas_offset_yc - (y - self.pan_offset_y) * self.zoom
         return (xc, yc)
 
-    def zoom_extents(self):
+    def zoom_extents(self, do_log : bool = True):
         """Adjusts zoom and pan to fit all created nodes perfectly in the canvas."""
         if not self.model.nodes:
-            self.log("No nodes to frame!")
+            self.log("No nodes to frame!") if do_log else None
             return
 
         # Find the Bounding Box in engineering units
@@ -140,7 +209,7 @@ class MainController:
         # If it's infinity (meaning there's exactly 1 node), just default to zoom 50
         self.zoom = new_zoom if new_zoom != float('inf') else 50.0
 
-        self.log("Zoom Extents applied.")
+        self.log("Zoom Extents applied.") if do_log else None
         self.on_canvas_update()
 
     def apply_precision(self, num):
@@ -204,6 +273,8 @@ class MainController:
             with open(filepath, "r", encoding="utf-8") as fp:
                 json_data = json.load(fp)
                 self.model.load_from_json(json_data)
+
+            self.zoom_extents(do_log=False)
             
             self.log(f"Loaded {filepath} successfully")
 
@@ -259,13 +330,16 @@ class MainController:
         self.log(f"Current Material Properties: E=[{E}] ν=[{nu}] γ=[{gamma}]")
 
     def _on_mode_results(self):
-        if not self.model.results:
+        if not self.model.results or not self.heatmap_data:
             self.log("No results available. Please run the solver first!", "warn")
             self.mode = "node" # Kick them back
             return
+
+        assert self.sub_mode is not None
             
         self.view.mode_text_var.set(f"📊 Results ({self.sub_mode.capitalize()})")
-        self.log(f"Viewing {self.sub_mode.capitalize()}. Adjust scale slider to exaggerate.")
+
+        self.log(f"Viewing {self.sub_mode.capitalize()} Heatmap.")
         self.on_canvas_update()
 
     def log(self, value:str, kind:str = "normal"):
@@ -384,6 +458,7 @@ class MainController:
         """
         Calculates pixels coordinates and invokes viewer for forces
         """
+
         force_data_to_draw = []
 
         # get max magnitude
@@ -458,11 +533,14 @@ class MainController:
                 assert edge.mid_node is not None
                 n_mid = self.model.nodes[edge.mid_node]
                 # Reuse our MathHelper to get both positions and tangents instantly
+
+                pts, angs = [], []
+
                 if edge.type == "parabola":
                     pts, angs = self.math.calculate_parabola_points(n_start.as_tuple(), n_end.as_tuple(), n_mid.as_tuple(), segments=num_icons)
                 elif edge.type == "circle":
                     pts, angs = self.math.calculate_circle_points(n_start.as_tuple(), n_end.as_tuple(), n_mid.as_tuple(), segments=num_icons)
-                
+            
                 # Pair them up
                 for pt, ang in zip(pts, angs):
                     points_and_angles.append((pt, ang))
@@ -515,35 +593,13 @@ class MainController:
         # force clearing of results
         self.view.canvas.delete("results")
 
-        if not self.model.results or self.mode != "results":
+        if not self.model.results or self.mode != "results" or not self.heatmap_data:
             return
 
-        U = self.model.results["displacements"]
-        R = self.model.results.get("reactions", [])
-        
-        displacements = {}
-        reactions = {}
-        max_disp = 0.0
-
-        # Node ID 'n' maps to U[2n] for X, and U[2n+1] for Y.
-        for node_id, solver_node in self.model.mesh.solver_nodes.items():
-            idx_x = 2 * node_id
-            idx_y = 2 * node_id + 1
-            
-            # Extract displacements
-            dx, dy = U[idx_x], U[idx_y]
-            displacements[node_id] = (dx, dy)
-            max_disp = max(max_disp, hypot(dx, dy))
-
-            # Extract reactions (if support exists)
-            if solver_node.support and R:
-                rx, ry = R[idx_x], R[idx_y]
-                reactions[node_id] = (rx, ry)
-
         max_displacement_pxls = self.view.scale_slider_var.get()
-
-        if max_disp > 1e-12:
-            scale_factor = max_displacement_pxls / max_disp
+        
+        if self.heatmap_data.max_disp > 1e-12:
+            scale_factor = max_displacement_pxls / self.heatmap_data.max_disp
         else:
             scale_factor = 0.0
 
@@ -551,49 +607,26 @@ class MainController:
         
         polygons_to_draw = []
 
-        for n1, n2, n3 in self.model.mesh.triangles:
+        for i, (n1, n2, n3) in enumerate(self.model.mesh.triangles):
             p1, p2, p3 = nodes_pxl[n1], nodes_pxl[n2], nodes_pxl[n3]
-            d1, d2, d3 = displacements[n1], displacements[n2], displacements[n3]
-
-            # Apply the scale_factor, NOT the raw pixel value
-            p1_def = (p1[0] + d1[0] * scale_factor, p1[1] - d1[1] * scale_factor)
-            p2_def = (p2[0] + d2[0] * scale_factor, p2[1] - d2[1] * scale_factor)
-            p3_def = (p3[0] + d3[0] * scale_factor, p3[1] - d3[1] * scale_factor)
             
-            # Flatten into a single tuple for the canvas
-            flat_coords = (*p1_def, *p2_def, *p3_def)
+            # Fetch geometry from Data Class
+            flat_coords = self.heatmap_data.get_deformed_coords(n1, n2, n3, p1, p2, p3, scale_factor)
 
-            # Determine Color
-            fill_color = ""
-            outline_color = "#00ff0d" # Bright Green default
+            # Fetch color from Data Class
+            if self.sub_mode == "stress":
+                outline = self.heatmap_data.get_stress_color(i)
+                fill = outline
+            elif self.sub_mode == "displacement": 
+                outline = self.heatmap_data.get_disp_color(n1, n2, n3)
+                fill = outline
+            else:
+                outline, fill = "#00ff0d", ""
 
-            if self.sub_mode == "heatmap":
-                avg_mag = (hypot(*d1) + hypot(*d2) + hypot(*d3)) / 3.0
-                ratio = min(1.0, avg_mag / max_disp) if max_disp > 0 else 0.0
-                
-                # LERP Color: Green to Red
-                r = int(255 * ratio)
-                g = int(255 * (1 - ratio))
-                fill_color = f"#{r:02x}{g:02x}00" 
-                outline_color = fill_color
-
-            polygons_to_draw.append((flat_coords, outline_color, fill_color))
+            polygons_to_draw.append((flat_coords, outline, fill))
 
         # Send fully processed data to the View
         self.view.draw_results(polygons_to_draw)
-
-        # Draw Reactions (if sub_mode requires it)
-        if self.sub_mode == "reactions":
-            reaction_data = []
-            for nid, (rx, ry) in reactions.items():
-                if hypot(rx, ry) > 1e-6: # Ignore zero-forces
-                    px, py = nodes_pxl[nid]
-                    angle = degrees(atan2(ry, rx))
-                    # Reusing your excellent force helper!
-                    reaction_data.append(((hypot(rx, ry), angle, 0.0), (px, py), 40.0))
-            
-            # Send them to the existing force drawer
-            self.view.draw_forces(reaction_data)
 
 
     def on_canvas_update(self):
@@ -697,86 +730,204 @@ class MainController:
         #  Trigger screen update
         self.on_canvas_update()
 
-    def on_mouse_move(self, x, y):
+    def on_mouse_move(self, x_craw, y_craw):
         # as unt
-        x, y = [round(self.apply_precision(i), 6) for i in self.convert_pxls_to_unt(x, y)]
+        x_raw, y_raw = self.convert_pxls_to_unt(x_craw, y_craw)
+        # applied snap
+        x, y = [round(self.apply_precision(i), 6) for i in (x_raw, y_raw)]
         # only get coord values after precision calculation
         xc, yc = self.convert_unt_to_pxls(x, y)
 
-        
-        match self.mode:
-            case "node":
+        if self.mode == "node":
+            self.preview_line.clear()
+            start_px = self.convert_unt_to_pxls(*self.active_points[0]) if len(self.active_points) > 0 else None
+            # Draw coordinates on mouse
+            self.view.draw_near_mouse(
+                mouse_coords_unt=(x, y),
+                mouse_coords_pxl=(xc, yc),
+            )
+            
+            # draw preview line
+            if start_px:
+                self.preview_line = [
+                    *start_px,
+                    xc, yc
+                ]
+                self.on_canvas_update()
+
+        elif self.mode == "edge":
+
+            closest_node_id = self.get_closest_node_id(x, y)
+
+            if len(self.active_node_ids) == 1 and self.sub_mode == "linear":
                 self.preview_line.clear()
-                start_px = self.convert_unt_to_pxls(*self.active_points[0]) if len(self.active_points) > 0 else None
-                # Draw coordinates on mouse
+                if closest_node_id and closest_node_id != self.active_node_ids[0]:
+                    active_node = self.model.nodes[self.active_node_ids[0]]
+                    closest_node = self.model.nodes[closest_node_id]
+                    self.preview_line = [
+                        *self.convert_unt_to_pxls(*active_node.as_tuple()), 
+                        *self.convert_unt_to_pxls(*closest_node.as_tuple())    
+                    ]
+                    self.on_canvas_update()
+
+
+            if len(self.active_node_ids) == 2:
+                self.preview_curve.clear()
+                
+
+                if closest_node_id and closest_node_id not in self.active_node_ids:
+                    n1, n2, n3 = [self.model.nodes[i] for i in self.active_node_ids + [closest_node_id,]]
+
+                    points_unt = []
+
+                    if self.sub_mode == "circle":
+
+                        points_unt, _ = self.math.calculate_circle_points(
+                            n1.as_tuple(), n2.as_tuple(), n3.as_tuple()
+                        )
+                    
+                    elif self.sub_mode == "parabola":
+                        points_unt, _ = self.math.calculate_parabola_points(
+                            n1.as_tuple(), n2.as_tuple(), n3.as_tuple()
+                        )
+
+                    points_pxl = [self.convert_unt_to_pxls(x, y) for x, y in points_unt]
+                    self.preview_curve = points_pxl
+
+                    self.on_canvas_update()
+
+        elif self.mode == "utils":
+            if self.sub_mode == "move" and len(self.active_node_ids) == 1:
                 self.view.draw_near_mouse(
                     mouse_coords_unt=(x, y),
                     mouse_coords_pxl=(xc, yc),
                 )
+
+        elif self.mode == "results":
+            self.view.canvas.delete("hover_info")
+
+            if not self.model.nodes or not self.model.results or not self.heatmap_data:
+                return
+
+            # calculate current scale factor
+            max_displacement_pxls = self.view.scale_slider_var.get()
+            scale_factor = max_displacement_pxls / self.heatmap_data.max_disp if self.heatmap_data.max_disp > 1e-12 else 0.0
+
+            # Pre-calculate deformed pixel coordinates for ALL solver nodes
+            deformed_nodes_pxl = {}
+            min_px, max_px = float('inf'), float('-inf')
+            min_py, max_py = float('inf'), float('-inf')
+
+            for nid, n in self.model.mesh.solver_nodes.items():
+                px, py = self.convert_unt_to_pxls(n.x, n.y)
+                dx, dy = self.heatmap_data.displacements.get(nid, (0.0, 0.0))
                 
-                # draw preview line
-                if start_px:
-                    self.preview_line = [
-                        *start_px,
-                        xc, yc
-                    ]
-                    self.on_canvas_update()
+                # Apply scale 
+                def_px = px + dx * scale_factor
+                def_py = py - dy * scale_factor
+                
+                deformed_nodes_pxl[nid] = (def_px, def_py)
+                
+                # Track bounds for fast failing
+                min_px, max_px = min(min_px, def_px), max(max_px, def_px)
+                min_py, max_py = min(min_py, def_py), max(max_py, def_py)
 
-                   
-            
-            case "edge":
+            # 2. Bounding Box Optimization (in pixels, with generous 20px tolerance)
+            if not (min_px - 20 <= xc <= max_px + 20 and min_py - 20 <= yc <= max_py + 20):
+                return
 
-                closest_node_id = self.get_closest_node_id(x, y)
+            hover_text = ""
 
-                if len(self.active_node_ids) == 1 and self.sub_mode == "linear":
-                    self.preview_line.clear()
-                    if closest_node_id and closest_node_id != self.active_node_ids[0]:
-                        active_node = self.model.nodes[self.active_node_ids[0]]
-                        closest_node = self.model.nodes[closest_node_id]
-                        self.preview_line = [
-                            *self.convert_unt_to_pxls(*active_node.as_tuple()), 
-                            *self.convert_unt_to_pxls(*closest_node.as_tuple())    
-                        ]
-                        self.on_canvas_update()
-
-
-                if len(self.active_node_ids) == 2:
-                    self.preview_curve.clear()
+            # --- CST TOOLTIPS ---
+            if self.sub_mode in ["stress", "displacement"]: 
+                
+                # Inline CST Hit Detection using the dynamically scaled pixel coordinates
+                def sign(p1x, p1y, p2x, p2y, p3x, p3y):
+                    return (p1x - p3x) * (p2y - p3y) - (p2x - p3x) * (p1y - p3y)
+                
+                cst_idx = None
+                for i, (n1, n2, n3) in enumerate(self.model.mesh.triangles):
+                    x1, y1 = deformed_nodes_pxl[n1]
+                    x2, y2 = deformed_nodes_pxl[n2]
+                    x3, y3 = deformed_nodes_pxl[n3]
                     
+                    # Test against mouse pixel coordinates (xc, yc)
+                    d1 = sign(xc, yc, x1, y1, x2, y2)
+                    d2 = sign(xc, yc, x2, y2, x3, y3)
+                    d3 = sign(xc, yc, x3, y3, x1, y1)
 
-                    if closest_node_id and closest_node_id not in self.active_node_ids:
-                        n1, n2, n3 = [self.model.nodes[i] for i in self.active_node_ids + [closest_node_id,]]
+                    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+                    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
 
-                        if self.sub_mode == "circle":
+                    if not (has_neg and has_pos):
+                        cst_idx = i
+                        break
 
-                            points_unt, _ = self.math.calculate_circle_points(
-                                n1.as_tuple(), n2.as_tuple(), n3.as_tuple()
-                            )
-                        
-                        elif self.sub_mode == "parabola":
-                            points_unt, _ = self.math.calculate_parabola_points(
-                                n1.as_tuple(), n2.as_tuple(), n3.as_tuple()
-                            )
+                if cst_idx is None: 
+                    return
 
-                        points_pxl = [self.convert_unt_to_pxls(x, y) for x, y in points_unt]
-                        self.preview_curve = points_pxl
+                n1, n2, n3 = self.model.mesh.triangles[cst_idx]
 
-                        self.on_canvas_update()
-
-
-
-
-
-            case "parabola":
-                # Add logic to preview the parabola using self.active_points and (mx, my)
-                pass    
-
-            case "utils":
-                if self.sub_mode == "move" and len(self.active_node_ids) == 1:
-                    self.view.draw_near_mouse(
-                        mouse_coords_unt=(x, y),
-                        mouse_coords_pxl=(xc, yc),
+                if self.sub_mode == "stress":
+                    vm = self.heatmap_data.vm_stresses.get(cst_idx, 0.0)
+                    raw_stresses = self.model.results.get("stresses", [])
+                            
+                    if cst_idx < len(raw_stresses):
+                        sx, sy, txy = raw_stresses[cst_idx]
+                        hover_text = (
+                            f"Element: {cst_idx}\n"
+                            f"VonMises: {vm:.2f} f/u²\n"
+                            f"σxx: {sx:.2f} | σyy: {sy:.2f}\n"
+                            f"τxy: {txy:.2f}"
+                        )
+                    else:
+                        hover_text = f"Element: {cst_idx}\nVM: {vm:.2f} f/u²"
+                else:
+                    d1, d2, d3 = [self.heatmap_data.displacements[n] for n in (n1, n2, n3)]
+                    avg_dx = (d1[0] + d2[0] + d3[0]) / 3
+                    avg_dy = (d1[1] + d2[1] + d3[1]) / 3
+                    mag = hypot(avg_dx, avg_dy)
+                    
+                    hover_text = (
+                        f"Element: {cst_idx}\n"
+                        f"Avg Disp: {mag:.4f} u\n"
+                        f"dx: {avg_dx:.4f} | dy: {avg_dy:.4f}"
                     )
+
+            # --- NODE TOOLTIPS ---
+            elif self.sub_mode == "nodes": 
+                closest_node_id = None
+                min_dist = 15.0 # 15 pixels hover tolerance
+                
+                for nid, (px, py) in deformed_nodes_pxl.items():
+                    dist = hypot(px - xc, py - yc)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_node_id = nid
+                
+                if closest_node_id is None: 
+                    return
+                
+                dx, dy = self.heatmap_data.displacements.get(closest_node_id, (0.0, 0.0))
+                mag = hypot(dx, dy)
+                
+                hover_text = (
+                    f"Solver Node: {closest_node_id}\n"
+                    f"Disp: {mag:.4f} u\n"
+                    f"dx: {dx:.4f} | dy: {dy:.4f}"
+                )
+                
+                # Add reaction forces if they exist on this node
+                if self.model.results.get("reactions") and self.model.mesh.solver_nodes[closest_node_id].support:
+                    R = self.model.results["reactions"]
+                    rx = R[2 * closest_node_id - 1] 
+                    ry = R[2 * closest_node_id]
+                    hover_text += f"\nRx: {rx:.2f} | Ry: {ry:.2f}"
+
+            # Send data to the view to draw the tooltip box
+            if hover_text:
+                self.view.draw_hover_box(xc, yc, hover_text)
+
 
     def on_click_canvas(self, side:str, x, y):
         """Helper to parse click"""
@@ -1326,8 +1477,10 @@ class MainController:
         self.log("Trying to solve! (This may take a while on first run.)")
         try:
             time_passed = self.model.solve_mesh(method)
+
+            self.heatmap_data = HeatmapData(self.model.results, self.model.mesh)
+
             self.log(f"Done! Calculations took {time_passed} seconds.")
-            self.on_mode_change("results", "heatmap")
+            self.on_mode_change("results", "displacement")
         except Exception as e:
-            print(traceback.format_exc())
             self.log(str(e), "warn")
