@@ -50,9 +50,11 @@ This project relies on a hybrid architecture. The graphical interface and data m
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/yourusername/CaST.git
-   cd CaST
+   git clone https://github.com/Pepinopenguim/FEMapp.git
+   cd FEMapp
    ```
+last thing i did was define the app name so FEMapp it is i guess
+   
 2. **Install Python dependencies:**
 
    (recommended) Create a virtualenv with whatever library you prefer. Most general is
