@@ -11,7 +11,7 @@ struct Material
     E::Float64
     nu::Float64
     gamma::Float64
-    width::Float64
+    thickness::Float64
 end
 
 struct Node
@@ -151,7 +151,7 @@ function get_element_stiffness(
     D = get_D(model, material)
 
     # Return K_e = transpose(B) * D * B * Area * h
-    return B' * D * B * A * material.width
+    return B' * D * B * A * material.thickness
 
 end
 
@@ -274,7 +274,7 @@ function assemble_system(model::Union{PlaneStrain, PlaneStress}, mat::Material, 
 
         A = abs(det(Jacobian_CST(C))) / 2
 
-        node_weight = (A * mat.gamma) / 3.0
+        node_weight = (A * mat.gamma * mat.thickness) / 3.0
 
         # Apply forces to even indexes i.e. y forces
         F[dofs[2]] -= node_weight

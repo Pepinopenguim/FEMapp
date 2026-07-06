@@ -4,6 +4,7 @@ import TKinterModernThemes as tmt
 from tkinter import simpledialog, filedialog
 from math import cos, sin
 from typing import Literal, Callable
+from PIL import Image, ImageTk
 
 from typing import List, Tuple, Dict
 
@@ -25,6 +26,14 @@ class MainView:
         self.root.master.geometry(f"{self.start_width}x{self.start_height}")
 
         self.preview_item_ids = []
+        
+        # load image and resize it to wanted size
+        img = Image.open(r"assets/cast_wtext.png")        
+        w = 200 # pxls
+        h = int(img.height * w / img.width)
+        img = img.resize((w, h), Image.Resampling.LANCZOS,)
+
+        self.watermark = ImageTk.PhotoImage(img)
 
         self._build_ui()
 
@@ -169,7 +178,7 @@ class MainView:
         )
         self.dir_cb.pack(side="left", padx=5)
 
-        for text, var in [("Start [f]:", self.q_start_var), ("End [f]:", self.q_end_var), ("Ang [°]:", self.edge_ang_var),]:
+        for text, var in [("Start [f/u]:", self.q_start_var), ("End [f/u]:", self.q_end_var), ("Ang [°]:", self.edge_ang_var),]:
             f = ttk.Frame(self.force_edge_frame)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -244,6 +253,21 @@ class MainView:
             orient="horizontal", variable=self.scale_slider_var, length=150
         )
         self.scale_slider.pack(side="left", padx=10)
+
+        self.heatmap_metric_var = tk.StringVar(value="Disp (Avg)")
+        self.heatmap_btn = ttk.Menubutton(
+            self.results_container,
+            textvariable=self.heatmap_metric_var
+        )
+        self.heatmap_menu = tk.Menu(self.heatmap_btn, tearoff=False)
+        self.heatmap_btn["menu"] = self.heatmap_menu
+        self.heatmap_btn.pack(side="left", padx=10)
+
+        self.disp_menu = tk.Menu(self.heatmap_menu, tearoff=False)
+        self.heatmap_menu.add_cascade(label="Displacements", menu=self.disp_menu)
+
+        self.stress_menu = tk.Menu(self.heatmap_menu, tearoff=False)
+        self.heatmap_menu.add_cascade(label="Stress", menu=self.stress_menu)
         
         # on startup, mode is node
         self.set_toolbar_visibility("node")
@@ -331,10 +355,10 @@ class MainView:
 
         self.mesh_slider.config(command=lambda _: callback(self.mesh_slider_var.get()))
 
-    def bind_boundary_change(self, callback):
+    def bind_boundary_change(self, callback: Callable[[str], None]):
         self.boundary_cb.bind(
             "<<ComboboxSelected>>",
-            lambda event: callback(self.boundary_var.get())
+            lambda _: callback(self.boundary_var.get())
         )
 
     def bind_apply_material_btn(self, callback: Callable[[float, float, float], None]):
@@ -473,14 +497,27 @@ class MainView:
         # 8. results
         self.results_menu = tk.Menu(self.mode_menu, tearoff=False)
         self.results_menu.add_command(label="Nodes", command=lambda: callback("results", "nodes"))
-        self.results_menu.add_command(label="Displacements", command=lambda: callback("results", "displacement"))
-        self.results_menu.add_command(label="Stress", command=lambda: callback("results", "stress"))
+        self.results_menu.add_command(label="Heatmap", command=lambda: callback("results", "heatmap"))
         self.mode_menu.add_cascade(label="Results", menu=self.results_menu)
 
     def bind_results_scale(self, callback):
         self.scale_slider.config(
             command= lambda _: callback()
         )
+
+    def bind_heatmap_change(self, callback):
+        def internal_handler(display_name, internal_metric):
+            self.heatmap_metric_var.set(display_name)
+            callback(internal_metric)
+        
+        self.disp_menu.add_command(label="Average", command=lambda: internal_handler("Disp (Avg)", "disp_mag"))
+        self.disp_menu.add_command(label="X-Axis", command=lambda: internal_handler("Disp (X)", "dx"))
+        self.disp_menu.add_command(label="Y-Axis", command=lambda: internal_handler("Disp (Y)", "dy"))
+
+        self.stress_menu.add_command(label="Von Mises", command=lambda: internal_handler("Stress (VM)", "vm"))
+        self.stress_menu.add_command(label="X-Axis", command=lambda: internal_handler("Stress (X)", "sx"))
+        self.stress_menu.add_command(label="Y-Axis", command=lambda: internal_handler("Stress (Y)", "sy"))
+        self.stress_menu.add_command(label="Shear (XY)", command=lambda: internal_handler("Stress (XY)", "txy"))
 
     def bind_canvas_click(self, callback):
         """
@@ -817,6 +854,23 @@ class MainView:
             self.canvas.create_line(0, y, cw, y, fill="#303030", tags="grid")
 
         self.canvas.tag_lower("grid") # Ensure grid stays behind nodes/edges
+
+    def draw_watermark(self):
+        self.canvas.delete("watermark")
+        
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+
+        padding = 10
+
+        self.canvas.create_image(
+            cw - padding,
+            ch - padding, 
+            image=self.watermark,
+            anchor="se",
+            tags="watermark"
+        )
+
+        self.canvas.tag_raise("watermark")
 
     def draw_nodes(self, points:Dict[int, tuple[float, float]], active_node_ids:List[int], r:float=4.0):
         # delete previously drawn points

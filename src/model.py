@@ -387,7 +387,9 @@ class FEMModel:
         if from_node:
             if target not in self.nodes: return False # node does not exist
             
-            self.supports.nodes[target] = support
+            existing_support = self.supports.nodes.get(target, "")
+
+            self.supports.nodes[target] = "".join(set(support + existing_support))
             return True
         
         if any(node not in self.nodes for node in target): return False
@@ -396,6 +398,10 @@ class FEMModel:
 
         if edge_id:
             self.supports.edges[edge_id] = support
+            
+            for node_id in target:
+                self.add_support(node_id, support)
+
             return True
         return False
         

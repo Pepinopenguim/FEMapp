@@ -9,12 +9,21 @@ from src.curve import CurveHelper
 import json
 
 class HeatmapData:
-    def __init__(self, results: dict, mesh: Mesh):
+    def __init__(self, results: dict, mesh):
         self.displacements = {}
+        self.raw_stresses = {}
         self.vm_stresses = {}
-        self.max_disp = 0.0
-        self.max_stress = 0.0
-        self.min_stress = float('inf')
+        
+        # Dictionary to track min and max for all possible heatmap metrics
+        self.bounds = {
+            "dx": {"min": float('inf'), "max": float('-inf')},
+            "dy": {"min": float('inf'), "max": float('-inf')},
+            "disp_mag": {"min": 0.0, "max": 0.0},
+            "sx": {"min": float('inf'), "max": float('-inf')},
+            "sy": {"min": float('inf'), "max": float('-inf')},
+            "txy": {"min": float('inf'), "max": float('-inf')},
+            "vm": {"min": float('inf'), "max": float('-inf')}
+        }
 
         U = results.get("displacements", [])
         S = results.get("stresses", [])
@@ -23,32 +32,49 @@ class HeatmapData:
         for node_id in mesh.solver_nodes:
             dx, dy = U[2 * node_id], U[2 * node_id + 1] 
             self.displacements[node_id] = (dx, dy)
-            self.max_disp = max(self.max_disp, hypot(dx, dy))
+            
+            mag = hypot(dx, dy)
+            
+            self.bounds["dx"]["min"] = min(self.bounds["dx"]["min"], dx)
+            self.bounds["dx"]["max"] = max(self.bounds["dx"]["max"], dx)
+            self.bounds["dy"]["min"] = min(self.bounds["dy"]["min"], dy)
+            self.bounds["dy"]["max"] = max(self.bounds["dy"]["max"], dy)
+            self.bounds["disp_mag"]["max"] = max(self.bounds["disp_mag"]["max"], mag)
 
-        # Process Stresses (Von Mises)
-        # stored as list of lists
+        # Process Stresses
         for i, stress in enumerate(S):
             if len(stress) >= 3:
                 sx, sy, txy = stress[0], stress[1], stress[2]
-                # Von Mises algebraic formula for Plane Stress/Strain
-                # max(0, ...) protects against floating point inaccuracies
                 vm = sqrt(max(0, sx**2 - sx*sy + sy**2 + 3 * txy**2))
+                
+                self.raw_stresses[i] = (sx, sy, txy)
                 self.vm_stresses[i] = vm
-                self.max_stress = max(self.max_stress, vm)
-                self.min_stress = min(self.min_stress, vm)
+                
+                self.bounds["sx"]["min"] = min(self.bounds["sx"]["min"], sx)
+                self.bounds["sx"]["max"] = max(self.bounds["sx"]["max"], sx)
+                self.bounds["sy"]["min"] = min(self.bounds["sy"]["min"], sy)
+                self.bounds["sy"]["max"] = max(self.bounds["sy"]["max"], sy)
+                self.bounds["txy"]["min"] = min(self.bounds["txy"]["min"], txy)
+                self.bounds["txy"]["max"] = max(self.bounds["txy"]["max"], txy)
+                self.bounds["vm"]["min"] = min(self.bounds["vm"]["min"], vm)
+                self.bounds["vm"]["max"] = max(self.bounds["vm"]["max"], vm)
             else:
+                self.raw_stresses[i] = (0.0, 0.0, 0.0)
                 self.vm_stresses[i] = 0.0
-                self.min_stress = 0.0
         
-        # Failsafe if mesh has no stresses
-        if self.min_stress == float('inf'):
-            self.min_stress = 0.0
+        # Failsafes for empty meshes or zero stress states
+        for key, b in self.bounds.items():
+            if b["min"] == float('inf'): b["min"] = 0.0
+            if b["max"] == float('-inf'): b["max"] = 0.0
+
+        # Keep explicit properties used by Controller for visual scaling
+        self.max_disp = self.bounds["disp_mag"]["max"]
 
     def get_deformed_coords(self, n1, n2, n3, p1, p2, p3, scale_factor):
-        """Calculates the scaled visual displacement coordinates"""
+        """Calculates the scaled visual displacement coordinates, values are in pixels"""
         d1, d2, d3 = self.displacements[n1], self.displacements[n2], self.displacements[n3]
         
-        # Remember: Tkinter Y is inverted, so we subtract dy
+        # tkinter y is inverted
         p1_def = (p1[0] + d1[0] * scale_factor, p1[1] - d1[1] * scale_factor)
         p2_def = (p2[0] + d2[0] * scale_factor, p2[1] - d2[1] * scale_factor)
         p3_def = (p3[0] + d3[0] * scale_factor, p3[1] - d3[1] * scale_factor)
@@ -62,16 +88,42 @@ class HeatmapData:
         g = int(255 * (1 - ratio))
         return f"#{r:02x}{g:02x}00"
 
-    def get_disp_color(self, n1, n2, n3) -> str:
+    def get_disp_color(self, n1, n2, n3, metric: str = "disp_mag") -> str:
+        """Returns the interpolated color based on chosen displacement metric."""
         d1, d2, d3 = self.displacements[n1], self.displacements[n2], self.displacements[n3]
-        avg_mag = (hypot(*d1) + hypot(*d2) + hypot(*d3)) / 3.0
-        ratio = (avg_mag / self.max_disp) if self.max_disp > 1e-12 else 0.0
+        
+        if metric == "dx":
+            val = (d1[0] + d2[0] + d3[0]) / 3.0
+        elif metric == "dy":
+            val = (d1[1] + d2[1] + d3[1]) / 3.0
+        else: # defaults to disp_mag
+            val = (hypot(*d1) + hypot(*d2) + hypot(*d3)) / 3.0
+            
+        b = self.bounds[metric]
+        span = b["max"] - b["min"]
+        
+        ratio = ((val - b["min"]) / span) if span > 1e-12 else 0.0
         return self._lerp_color(ratio)
 
-    def get_stress_color(self, element_idx: int) -> str:
-        vm = self.vm_stresses.get(element_idx, 0.0)
-        span = self.max_stress - self.min_stress
-        ratio = ((vm - self.min_stress) / span) if span > 1e-12 else 0.0
+    def get_stress_color(self, element_idx: int, metric: str = "vm") -> str:
+        """Returns the interpolated color based on chosen stress metric."""
+        if metric == "vm":
+            val = self.vm_stresses.get(element_idx, 0.0)
+        else:
+            sx, sy, txy = self.raw_stresses.get(element_idx, (0.0, 0.0, 0.0))
+            if metric == "sx": val = sx
+            elif metric == "sy": val = sy
+            elif metric == "txy": val = txy
+            else: val = 0.0
+
+        b = self.bounds[metric]
+        span = b["max"] - b["min"]
+        
+        # Uniform stress check
+        if span < 1e-12:
+            return self._lerp_color(1.0) if b["max"] > 1e-6 else self._lerp_color(0.0)
+            
+        ratio = (val - b["min"]) / span
         return self._lerp_color(ratio)
 
 class MainController:
@@ -119,7 +171,7 @@ class MainController:
         self.math = CurveHelper
 
         self.heatmap_data: HeatmapData | None = None
-
+        self.active_heatmap_metric = "disp_mag"  # defines which heatmap user is seeing
 
         # log of initialization
         self.log("Ready. Click anywhere to place a node.")
@@ -154,6 +206,7 @@ class MainController:
 
         # results
         self.view.bind_results_scale(self.on_canvas_update)
+        self.view.bind_heatmap_change(self.on_heatmap_metric_change)
 
     # ============================================
     # MATH & COORDINATE UTILITIES
@@ -273,6 +326,11 @@ class MainController:
         
         self.view.set_toolbar_visibility(self.mode, self.sub_mode)
 
+    def on_heatmap_metric_change(self, metric: str):
+        self.active_heatmap_metric = metric
+        if self.mode == "results" and self.sub_mode == "heatmap":
+            self.on_canvas_update()
+
     def on_file_tool(self, fmode: str, filepath: str):
 
         def on_file_save(filepath:str):
@@ -353,7 +411,6 @@ class MainController:
             
         self.view.mode_text_var.set(f"📊 Results ({self.sub_mode.capitalize()})")
 
-        self.log(f"Viewing {self.sub_mode.capitalize()} Heatmap.")
         self.on_canvas_update()
 
     def log(self, value:str, kind:str = "normal"):
@@ -628,11 +685,12 @@ class MainController:
             flat_coords = self.heatmap_data.get_deformed_coords(n1, n2, n3, p1, p2, p3, scale_factor)
 
             # Fetch color from Data Class
-            if self.sub_mode == "stress":
-                outline = self.heatmap_data.get_stress_color(i)
-                fill = outline
-            elif self.sub_mode == "displacement": 
-                outline = self.heatmap_data.get_disp_color(n1, n2, n3)
+            if self.sub_mode == "heatmap":
+                metric = self.active_heatmap_metric
+                if metric in ["vm", "sx", "sy", "txy"]:
+                    outline = self.heatmap_data.get_stress_color(i, metric=metric)
+                else: 
+                    outline = self.heatmap_data.get_disp_color(n1, n2, n3, metric=metric)
                 fill = outline
             else:
                 outline, fill = "#00ff0d", ""
@@ -667,6 +725,8 @@ class MainController:
             zoom=self.zoom,
             precision=self.precision
         )
+
+        self.view.draw_watermark()
 
         self._draw_edges()
         self._draw_nodes()
@@ -852,8 +912,22 @@ class MainController:
 
             hover_text = ""
 
+            def format_val(val: float, digits: int = 2) -> str:
+                    """Formats to fixed-point, but switches to scientific if too small or too large."""
+                    if val == 0.0:
+                        return f"{0.0:.{digits}f}"
+                        
+                    abs_val = abs(val)
+                    
+                    if abs_val < 10**(-digits) or abs_val >= 1e5:
+                        return f"{val:.{digits}e}"
+                        
+                    return f"{val:.{digits}f}"
+
             # --- CST TOOLTIPS ---
-            if self.sub_mode in ["stress", "displacement"]: 
+            if self.sub_mode == "heatmap": 
+
+                
                 
                 # Inline CST Hit Detection using the dynamically scaled pixel coordinates
                 def sign(p1x, p1y, p2x, p2y, p3x, p3y):
@@ -882,20 +956,20 @@ class MainController:
 
                 n1, n2, n3 = self.model.mesh.triangles[cst_idx]
 
-                if self.sub_mode == "stress":
+                if self.active_heatmap_metric in ["vm", "sx", "sy", "txy"]:
                     vm = self.heatmap_data.vm_stresses.get(cst_idx, 0.0)
                     raw_stresses = self.model.results.get("stresses", [])
                             
                     if cst_idx < len(raw_stresses):
-                        sx, sy, txy = raw_stresses[cst_idx]
+                        sx, sy, txy = raw_stresses[cst_idx][:3]
                         hover_text = (
                             f"Element: {cst_idx}\n"
-                            f"VonMises: {vm:.2f} f/u²\n"
-                            f"σxx: {sx:.2f} | σyy: {sy:.2f}\n"
-                            f"τxy: {txy:.2f}"
+                            f"VonMises: {format_val(vm, 4)} f/u²\n"
+                            f"σxx: {format_val(sx, 4)} | σyy: {format_val(sy, 4)}\n"
+                            f"τxy: {format_val(txy, 4)}"
                         )
                     else:
-                        hover_text = f"Element: {cst_idx}\nVM: {vm:.2f} f/u²"
+                        hover_text = f"Element: {cst_idx}\nVM: {format_val(vm, 4)} f/u²"
                 else:
                     d1, d2, d3 = [self.heatmap_data.displacements[n] for n in (n1, n2, n3)]
                     avg_dx = (d1[0] + d2[0] + d3[0]) / 3
@@ -904,8 +978,8 @@ class MainController:
                     
                     hover_text = (
                         f"Element: {cst_idx}\n"
-                        f"Avg Disp: {mag:.4f} u\n"
-                        f"dx: {avg_dx:.4f} | dy: {avg_dy:.4f}"
+                        f"Avg Disp: {format_val(mag, 4)} u\n"
+                        f"dx: {format_val(avg_dx, 4)} | dy: {format_val(avg_dy, 4)}"
                     )
 
             # --- NODE TOOLTIPS ---
@@ -927,8 +1001,8 @@ class MainController:
                 
                 hover_text = (
                     f"Solver Node: {closest_node_id}\n"
-                    f"Disp: {mag:.4f} u\n"
-                    f"dx: {dx:.4f} | dy: {dy:.4f}"
+                    f"Disp: {format_val(mag, 4)} u\n"
+                    f"dx: {format_val(dx, 4)} | dy: {format_val(dy, 4)}"
                 )
                 
                 # Add reaction forces if they exist on this node
@@ -936,7 +1010,7 @@ class MainController:
                     R = self.model.results["reactions"]
                     rx = R[2 * closest_node_id] 
                     ry = R[2 * closest_node_id + 1]
-                    hover_text += f"\nRx: {rx:.2f} | Ry: {ry:.2f}"
+                    hover_text += f"\nRx: {format_val(rx, 4)} | Ry: {format_val(ry, 4)}"
 
             # Send data to the view to draw the tooltip box
             if hover_text:
@@ -1179,6 +1253,13 @@ class MainController:
                     if char == ",": char = "."
                     self.coord_buffer[self.cur_editing_coord] += char
                     self.view.update_coord_input(self.coord_buffer, self.cur_editing_coord)
+                elif (
+                    any(len(i) > 0 for i in self.coord_buffer.values()) # only consider e when typing
+                    and
+                    char == "e"
+                ):
+                    self.coord_buffer[self.cur_editing_coord] += char
+                    self.view.update_coord_input(self.coord_buffer, self.cur_editing_coord)
                 elif char == ";":
                     # updates text
                     self._switch_editing_coord() 
@@ -1195,9 +1276,7 @@ class MainController:
                         case "m": self.on_mode_change("utils", "move")
                         case "q": self.on_mode_change("Mesh", None)
                         case "w": self.on_mode_change("results", "nodes")
-                        case "e": self.on_mode_change("results", "displacement")
-                        case "r": self.on_mode_change("results", "stress")
-                        #case "t": self.on_mode_change("utils", "split")
+                        case "h": self.on_mode_change("results", "heatmap")
 
 
         elif not keysym:
@@ -1508,6 +1587,6 @@ class MainController:
             self.heatmap_data = HeatmapData(self.model.results, self.model.mesh)
 
             self.log(f"Done! Calculations took {time_passed} seconds.")
-            self.on_mode_change("results", "displacement")
+            self.on_mode_change("results", "heatmap")
         except Exception as e:
             self.log(str(e), "warn")

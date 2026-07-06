@@ -1,0 +1,99 @@
+{
+    "nodes": {
+        "1": {
+            "x": 0.0,
+            "y": 0.05
+        },
+        "3": {
+            "x": 0.03,
+            "y": 0.05
+        },
+        "4": {
+            "x": 0.03,
+            "y": 0.0
+        },
+        "5": {
+            "x": 0.015,
+            "y": 0.0
+        },
+        "8": {
+            "x": 0.010606601717798213,
+            "y": 0.010606601717798212
+        },
+        "9": {
+            "x": 9.184850993605148e-19,
+            "y": 0.015
+        }
+    },
+    "edges": {
+        "1": {
+            "type": "linear",
+            "start_node": 5,
+            "end_node": 4,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "2": {
+            "type": "linear",
+            "start_node": 4,
+            "end_node": 3,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "3": {
+            "type": "linear",
+            "start_node": 3,
+            "end_node": 1,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "6": {
+            "type": "circle",
+            "start_node": 5,
+            "end_node": 9,
+            "mid_node": 8,
+            "boundary_group": "external"
+        },
+        "8": {
+            "type": "linear",
+            "start_node": 9,
+            "end_node": 1,
+            "mid_node": null,
+            "boundary_group": "external"
+        }
+    },
+    "material": {
+        "E": 200000000000.0,
+        "nu": 0.3,
+        "gamma": 0.0,
+        "h": 0.005
+    },
+    "supports": {
+        "nodes": {
+            "5": "y",
+            "4": "y",
+            "9": "x",
+            "1": "x"
+        },
+        "edges": {
+            "1": "y",
+            "8": "x"
+        }
+    },
+    "forces": {
+        "nodes": {},
+        "edges": {
+            "3": {
+                "magnitude": 250000.0,
+                "moment": 0.0,
+                "direction_type": "global",
+                "global_angle": 90.0,
+                "magnitude_end": 250000.0
+            }
+        }
+    },
+    "counters": {
+        "nodes": 10,
+        "edges": 8
+    }
+}
