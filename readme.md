@@ -82,4 +82,6 @@ last thing i did was define the app name so FEMapp it is i guess
 
 Created by Vítor Luís Costa Azevedo. I am quite fond of FEM :).
 
-Free use to do whatever you like with the code, just thank me if you're kind. [s]()
+Free use to do whatever you like with the code, just thank me if you're kind. 
+
+Fun fact: I made the logo in 30 seconds on libreoffice.
