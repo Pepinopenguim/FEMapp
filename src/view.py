@@ -14,12 +14,12 @@ class MainView:
     def __init__(self):
 
         self.root = tmt.ThemedTKinterFrame(
-            title="FEM Helper",
+            title="CaST",
             theme="azure",
             mode="dark",
-            usecommandlineargs=False
+            usecommandlineargs=False,
         )
-
+        
         self.start_width, self.start_height = 1400, 900
 
         self.root.master.geometry(f"{self.start_width}x{self.start_height}")
@@ -561,6 +561,7 @@ class MainView:
     def clear_misc_from_canvas(self):
         # == mouse coord ==
         self.canvas.delete("coord_lbl")
+        self.canvas.delete("hover_info")
 
     def update_status_message(self, message: str, kind:str):
         """Displays a message to the user on the UI."""

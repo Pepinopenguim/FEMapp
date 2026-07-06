@@ -237,6 +237,7 @@ class MainController:
     # ============================================
     def on_mode_change(self, new_mode: str, new_submode: str | None):
         self._stop_drawing()
+        self.view.clear_misc_from_canvas()
         self.mode = new_mode
         self.sub_mode = new_submode
 
@@ -852,9 +853,9 @@ class MainController:
                     x3, y3 = deformed_nodes_pxl[n3]
                     
                     # Test against mouse pixel coordinates (xc, yc)
-                    d1 = sign(xc, yc, x1, y1, x2, y2)
-                    d2 = sign(xc, yc, x2, y2, x3, y3)
-                    d3 = sign(xc, yc, x3, y3, x1, y1)
+                    d1 = sign(x_craw, y_craw, x1, y1, x2, y2)
+                    d2 = sign(x_craw, y_craw, x2, y2, x3, y3)
+                    d3 = sign(x_craw, y_craw, x3, y3, x1, y1)
 
                     has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
                     has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
@@ -900,7 +901,7 @@ class MainController:
                 min_dist = 15.0 # 15 pixels hover tolerance
                 
                 for nid, (px, py) in deformed_nodes_pxl.items():
-                    dist = hypot(px - xc, py - yc)
+                    dist = hypot(px - x_craw, py - y_craw)
                     if dist < min_dist:
                         min_dist = dist
                         closest_node_id = nid
@@ -920,13 +921,13 @@ class MainController:
                 # Add reaction forces if they exist on this node
                 if self.model.results.get("reactions") and self.model.mesh.solver_nodes[closest_node_id].support:
                     R = self.model.results["reactions"]
-                    rx = R[2 * closest_node_id - 1] 
-                    ry = R[2 * closest_node_id]
+                    rx = R[2 * closest_node_id] 
+                    ry = R[2 * closest_node_id + 1]
                     hover_text += f"\nRx: {rx:.2f} | Ry: {ry:.2f}"
 
             # Send data to the view to draw the tooltip box
             if hover_text:
-                self.view.draw_hover_box(xc, yc, hover_text)
+                self.view.draw_hover_box(x_craw, y_craw, hover_text)
 
 
     def on_click_canvas(self, side:str, x, y):
@@ -1175,6 +1176,15 @@ class MainController:
                         case "p": self.on_mode_change("edge", "parabola")
                         case "c": self.on_mode_change("edge", "circle")
                         case "s": self.on_mode_change("support", "node")
+                        case "d": self.on_mode_change("support", "edge")
+                        case "f": self.on_mode_change("force", "node")
+                        case "g": self.on_mode_change("force", "edge")
+                        case "m": self.on_mode_change("utils", "move")
+                        case "q": self.on_mode_change("Mesh", None)
+                        case "w": self.on_mode_change("results", "nodes")
+                        case "e": self.on_mode_change("results", "displacement")
+                        case "r": self.on_mode_change("results", "stress")
+                        #case "t": self.on_mode_change("utils", "split")
 
 
         elif not keysym:
