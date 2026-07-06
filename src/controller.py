@@ -136,7 +136,7 @@ class MainController:
         # app bindings
         self.view.bind_key_press(self.on_key_press)
         self.view.bind_enter_press(self.on_enter_press)
-        self.view.bind_space_press(self.zoom_extents)
+        self.view.bind_space_press(self.center_figure)
 
         # Pan
         self.view.bind_panning(self.on_pan)
@@ -170,11 +170,9 @@ class MainController:
         xc = (x - self.pan_offset_x) * self.zoom + self.canvas_offset_xc 
         yc = self.canvas_offset_yc - (y - self.pan_offset_y) * self.zoom
         return (xc, yc)
-
-    def zoom_extents(self, do_log : bool = True):
-        """Adjusts zoom and pan to fit all created nodes perfectly in the canvas."""
+    
+    def _get_zoom_extents(self) -> tuple[float, tuple[float, float]]:
         if not self.model.nodes:
-            self.log("No nodes to frame!") if do_log else None
             return
 
         # Find the Bounding Box in engineering units
@@ -184,9 +182,9 @@ class MainController:
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
 
-        # Center the camera
-        self.pan_offset_x = (min_x + max_x) / 2.0
-        self.pan_offset_y = (min_y + max_y) / 2.0
+        # get offset of center of figure
+        new_pan_offset_x = (min_x + max_x) / 2.0
+        new_pan_offset_y = (min_y + max_y) / 2.0
 
         # Calculate the new Zoom
         model_w = max_x - min_x
@@ -205,6 +203,21 @@ class MainController:
 
         # The new zoom must be the smaller of the two to ensure both dimensions fit
         new_zoom = min(zoom_x, zoom_y)
+
+        return new_zoom, (new_pan_offset_x, new_pan_offset_y)
+
+    def center_figure(self, do_log : bool = True):
+        """Adjusts zoom and pan to fit all created nodes perfectly in the canvas."""
+        
+        if not self.model.nodes:
+            self.log("No nodes to frame!") if do_log else None
+            return
+        
+        new_zoom, new_offset = self._get_zoom_extents()
+
+        # update offset - ie move camera to center
+        self.pan_offset_x = new_offset[0]
+        self.pan_offset_y = new_offset[1]
 
         # If it's infinity (meaning there's exactly 1 node), just default to zoom 50
         self.zoom = new_zoom if new_zoom != float('inf') else 50.0
@@ -275,7 +288,7 @@ class MainController:
                 json_data = json.load(fp)
                 self.model.load_from_json(json_data)
 
-            self.zoom_extents(do_log=False)
+            self.center_figure(do_log=False)
             
             self.log(f"Loaded {filepath} successfully")
 
@@ -327,8 +340,8 @@ class MainController:
     
     def _on_mode_material(self):
         self.view.mode_text_var.set("Material")
-        E, nu, gamma = self.model.material.as_tuple()
-        self.log(f"Current Material Properties: E=[{E}] ν=[{nu}] γ=[{gamma}]")
+        E, nu, gamma, d = self.model.material.as_tuple()
+        self.log(f"Current Material Properties: E=[{E} (f/u²)] ν=[{nu}] γ=[{gamma} f/u³] h=[{d} u]")
 
     def _on_mode_results(self):
         if not self.model.results or not self.heatmap_data:
@@ -1204,7 +1217,7 @@ class MainController:
                 for key in self.coord_buffer:
                     self.coord_buffer[key] = ""
 
-            case "Space": self.zoom_extents()
+            case "Space": self.center_figure()
                     
             case "Tab": 
                 if self.mode == "node":
@@ -1302,10 +1315,10 @@ class MainController:
     # MODEL COMMIT LOGIC
     # ==========================================
     
-    def _commit_new_material(self, E:float, nu:float, gamma:float):
+    def _commit_new_material(self, E:float, nu:float, gamma:float, h:float):
         try:
-            self.model.set_material(E, nu, gamma)
-            self.log(f"New material defined! E=[{E}] ν=[{nu}] γ=[{gamma}]")
+            self.model.set_material(E, nu, gamma, h)
+            self._on_mode_material() # update log
         except Exception as e:
             self.log(str(e), "warn")
 
@@ -1457,9 +1470,13 @@ class MainController:
             mesher = MeshEngine(self.model, math_helper=self.math)
             self.log("Generating Mesh...")
 
+            # get zoom when the figure is fully centered
+            # so meshing does not depend on actual zoom
+            full_figure_zoom, _ = self._get_zoom_extents()
+
             base_px_size = 40
             target_px_size = base_px_size * (10 ** (-slider_value / 10.0))
-            actual_mesh_size = target_px_size / self.zoom
+            actual_mesh_size = target_px_size / full_figure_zoom
 
             solver_nodes, triangles = mesher.generate_mesh(mesh_size=actual_mesh_size)
             

@@ -11,6 +11,7 @@ struct Material
     E::Float64
     nu::Float64
     gamma::Float64
+    width::Float64
 end
 
 struct Node
@@ -34,7 +35,7 @@ function parse_input(filepath::String)
     
     # Parse Material
     mat_data = data["material"]
-    mat = Material(mat_data["E"], mat_data["nu"], mat_data["gamma"])
+    mat = Material(mat_data["E"], mat_data["nu"], mat_data["gamma"], mat_data["h"])
     
     nodes = Dict{Int, Node}()
     for (id_str, n_data) in data["mesh"]["solver_nodes"]
@@ -92,7 +93,7 @@ function Jacobian_CST(C::Matrix{Float64})
     return C' * dNdξ
 end
 
-function get_B_matrix_3_node_triangle(C::Matrix{Float64})
+function get_B_matrix_CST(C::Matrix{Float64})
     # Shape function derivatives w.r.t. natural coordinates (xi, eta)
     dNdξ = [
         -1 -1; # dN1/dxi, dN1/deta
@@ -144,13 +145,13 @@ function get_element_stiffness(
     A = abs(det(Jacobian_CST(C))) / 2
 
     # Build the B matrix (Strain-Displacement)
-    B = get_B_matrix_3_node_triangle(C)
+    B = get_B_matrix_CST(C)
 
     # define D
     D = get_D(model, material)
 
-    # Return K_e = transpose(B) * D * B * Area
-    return B' * D * B * A # (Thickness 'h' is assumed to be 1.0 for standard plane strain)
+    # Return K_e = transpose(B) * D * B * Area * h
+    return B' * D * B * A * material.width
 
 end
 
@@ -178,7 +179,7 @@ function get_global_stresses(
         ]
         
         # Define B matrix
-        B = get_B_matrix_3_node_triangle(C)
+        B = get_B_matrix_CST(C)
         
         # Get displacements for this element
         U_e = zeros(6)

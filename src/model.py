@@ -54,12 +54,13 @@ class Material:
     E:float
     nu:float
     gamma:float
+    h:float = 1.0
 
     def as_tuple(self) -> tuple[float, float, float]:
-        return (self.E, self.nu, self.gamma)
+        return (self.E, self.nu, self.gamma, self.h)
 
     def __bool__(self):
-        return any([bool(i) for i in [self.E, self.nu]])
+        return any([bool(i) for i in [self.E, self.nu, self.h]])
 
     def as_json(self): return asdict(self)
 
@@ -152,14 +153,14 @@ class FEMModel:
         self._node_counter = 0
         self._edge_counter = 0
 
-    def set_material(self, E:float, nu:float, gamma:float):
-        if E < 1e-6:
+    def set_material(self, E:float, nu:float, gamma:float, h:float):
+        if E < 1e-6 or h < 1e-6:
             raise ValueError("Cannot define a material with Young equal to zero nor negative!")
 
         if nu > .5 or nu < -1:
-            raise ValueError("Poisson's ratio cannot be bigger than 0.5 or lesser than -1!")
+            raise ValueError("Poisson's ratio cannot be bigger than 0.5 or lesser than -1.")
 
-        self.material = Material(E, nu, gamma)
+        self.material = Material(E, nu, gamma, h)
 
 
     def add_node(self, x:float, y:float) -> int:

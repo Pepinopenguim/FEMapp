@@ -214,8 +214,14 @@ class MainView:
         self.E_double_var = tk.DoubleVar(value=1.0)
         self.poisson_double_var = tk.DoubleVar(value=0.1)
         self.gamma_double_var = tk.DoubleVar(value=0.0)
+        self.h_double_var = tk.DoubleVar(value=1.0)
 
-        for text, var in [("E (Young's Module)(f/u²):", self.E_double_var), ("ν (Poisson's ratio):", self.poisson_double_var), ("γ (Specific Weight)(f/u³):", self.gamma_double_var)]:
+        for text, var in [
+            ("E (Young's Module)[f/u²]:", self.E_double_var),
+            ("ν (Poisson's ratio):", self.poisson_double_var),
+            ("γ (Specific Weight)[f/u³]:", self.gamma_double_var),
+            ("h (width) [u]:", self.h_double_var),
+        ]:
             f = ttk.Frame(self.material_container)
             f.pack(side="left", padx=5)
             ttk.Label(f, text=text).pack(side="left", padx=(0, 2))
@@ -338,8 +344,9 @@ class MainView:
             E = self._safe_get_double(self.E_double_var)
             nu = self._safe_get_double(self.poisson_double_var)
             gamma = self._safe_get_double(self.gamma_double_var)
+            h = self._safe_get_double(self.h_double_var)
             
-            callback(E, nu, gamma)
+            callback(E, nu, gamma, h)
 
         self.apply_material_btn.config(
             command=internal_handler
@@ -562,6 +569,8 @@ class MainView:
         # == mouse coord ==
         self.canvas.delete("coord_lbl")
         self.canvas.delete("hover_info")
+        self.canvas.delete("results")
+        self.canvas.delete("mesh")
 
     def update_status_message(self, message: str, kind:str):
         """Displays a message to the user on the UI."""
