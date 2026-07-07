@@ -129,12 +129,41 @@ With the nodes placed, the user must connect 2 or 3 of them with the *Edge* tool
   caption: [Definition of an object with linear, parabolic and circular edges, along with a linear hole. #text("(Options menu, defined in green)", fill: green)]
 )
 
-
 == Adding of Supports and Forces
 
+To define boundary conditions, user must click the respective node, if in node mode, or two nodes of a given edge, in edge mode. User may change displacement restrictions on the upper menu.
+
+#figure(
+  image("supports.png", width: 80%),
+  caption: [A rectangular object defined with supports at nodes (lower nodes) and edges (upper edge)]
+)
+
+Similarly, for forces, they can be applied on nodes or edges. Edges can have "normal" (perpendicular to the element) and "global" (global coordinate system). Trapezoidal loads can be defined by differentiating start and end loads.
+
+#figure(
+  grid(
+    columns:range(2).map(_ => auto),
+    image("pload.png", width: 95%),
+    image("dload.png", width: 95%),
+  ),
+  caption: [Definition of (a): Point force on node, (b): normal {left} and global trapezoidal load {right}]
+)
 == Material
 
+The material consists of $E$ (Young's module), $nu$ (Poisson's ratio) and $gamma$ (Own Weight, on force per volume). On the material setting, user may also define the width of the object even though it's technically not a material property.
+
 == Meshing Engine
+
+In Mesh mode, a simple scale defines the expected size of an element, to be updated on the mesh engine. Smaller elements tend to lag out the software, due to it redrawing every element on every frame. 
+
+Mesh mode also defines the analysis to be made, _Plane Stress_ and _Plane Strain_ (which changes specifically the $D$ matrix, though more analysis are possible to be added). 
+
+#figure(
+  image(
+    "mesh.png", width: 80%
+  ),
+  caption: [Mesh define for an element to be solved in Plane Strain]
+)
 
 To solve complex geometries, the continuous physical domain must be discretized into a finite network of elements. While simple domains can be meshed manually, arbitrary geometries—especially those containing curves, parabolas, or internal holes—require specialized algorithmic generation.
  Tools like *Gmsh* (an open-source 3D finite element mesh generator) handle this discretization process. The meshing pipeline generally follows a strict topological hierarchy:
@@ -143,6 +172,8 @@ To solve complex geometries, the continuous physical domain must be discretized 
  - *Surfaces:* Closed boundaries formed by the curves, defining the actual solid material domain.
  
  Once the surface is defined, the meshing engine applies algorithms (such as Delaunay triangulation or advancing front methods) to pack the surface with non-overlapping triangles. A critical feature of advanced meshing is localized refinement . The engine automatically generates smaller, denser triangles around areas of high geometric complexity (like sharp corners, holes, or applied point loads) to capture rapid stress concentrations accurately. Conversely, it leaves larger elements in uniform, unconstrained regions to reduce the total degrees of freedom, optimizing the computational speed of the linear solver.
+
+To press the solve button on the top UI invokes the _Julia Engine_ and sends the user to the analysis of results, which will be covered in @results.
 
 == CST Elements
 
@@ -161,9 +192,8 @@ Which implies that $u(x,y)$ is linear.
 Because strain is defined as the first spatial derivative of displacement (e.g., $epsilon_x = (partial u) / (partial x)$), taking the derivative of a linear function yields a constant:
  
  $
- epsilon = alpha_2
+ epsilon = "cte"
 $
- 
  
  This mathematical property guarantees that the strain—and consequently, the stress—does not vary across the element's internal domain.
  Computationally, this is a massive advantage. Defining the element stiffness matrix $K_e$ requires integrating the material properties over the element's volume:
@@ -180,13 +210,13 @@ $
 $
  
  
- (where $h$ is the element thickness, in the software assume as always $1.0$ for simplicity). This eliminates the need for expensive numerical integration techniques, like Gaussian quadrature. As a result, the assembly of the global stiffness matrix in the backend becomes incredibly fast and memory-efficient, specially with the use of julia and its _SparseArrays_ library.
+ (where $h$ is the element thickness). This eliminates the need for expensive numerical integration techniques, like Gaussian quadrature. As a result, the assembly of the global stiffness matrix in the backend becomes incredibly fast and memory-efficient, specially with the use of julia and its _SparseArrays_ library.
 
  Furthermore, the geometric simplicity of the CST easily translates to the application's physical parameters and interactive UI. Body forces, such as the specific weight of a material, can be perfectly distributed as three equal nodal loads calculated directly from the area. 
 
 
 
-= EXAMPLE RESULTS
+= EXAMPLE RESULTS <results>
 
 Present the main findings of the work. Tables, figures, and equations can be inserted in this section as needed.
 
