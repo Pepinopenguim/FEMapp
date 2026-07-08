@@ -170,7 +170,79 @@ To solve complex geometries, the continuous physical domain must be discretized 
  - *Points:* The absolute bounds of the model.
  - *Curves:* Lines or arcs connecting the points to form wireframes.
  - *Surfaces:* Closed boundaries formed by the curves, defining the actual solid material domain.
- 
+
+The below script (@meshing) defines a pseudo-code that represents how the geometric CaST definitions are converted into useful FEM data, defining the mesh, and calculates the equivalent nodal forces and applies supports. *SolverNodes* is a dataclass that not only store its own coordinates, but support and force being applied.
+
+
+#pagebreak()
+
+#figure(
+
+block(
+  fill: rgb("#fafafa"),     
+  stroke: rgb("#e0e0e0"),  
+  inset: 15pt,            
+  radius: 5pt,            
+  width: 100%,            
+  [
+    #set text(size: 10pt)
+    ```python
+    MeshEngine(mesh_size)
+      gmsh.initialize()
+      
+      # ---- DEFINE GEOMETRY ----
+      for node in model.nodes:
+        add node to gmsh
+        define a tag for it
+        
+      for edge in model.edges:
+        get its type (external or hole)
+        if line:
+          create straight line in gmsh between start and end node
+        if parabola or circle:
+          calculate intermediate points along the curve
+          add these interpolated points as nodes in gmsh
+          create a spline connecting start -> intermediate points -> end
+          
+      # ---- DEFINE BOUNDARIES & SURFACE ----
+      for each boundary_group (external and holes):
+        sort curves head-to-tail to form a closed, continuous loop
+        create a CurveLoop in gmsh
+        
+      create a 2D PlaneSurface (using the external loop as the boundary, minus the hole loops)
+      
+      # ---- MESH GENERATION ----
+      generate 2D mesh!
+      
+      # ---- EXTRACT MESH DATA ----
+      get all generated triangles and their associated node tags
+      find only the "active" nodes (ignore unused points, like the center of a circle)
+      create a new 0-based index for these active nodes (so the Julia solver gets a clean array)
+      
+      # ---- MAP BOUNDARY CONDITIONS ----
+      for each gmsh edge:
+        find the actual mesh nodes generated along this specific edge
+        apply edge supports to these nodes
+        if edge has distributed load:
+          split load across the edges mesh segments (trapezoidal integration)
+          convert to X/Y directions and apply to the nodes
+          
+      for each base node:
+        apply point supports and point loads directly to their matching gmsh node
+        
+      # ---- PACKAGE FOR SOLVER ----
+      for each active node:
+        create a SolverNode containing (x, y, support, fx, fy, moment)
+        
+      gmsh.finalize()
+      
+      return SolverNodes, Triangles
+    ```
+  ]
+),
+caption: [Representative script that converts geometric values into useful data for building the linear system.]
+) <meshing>
+
  Once the surface is defined, the meshing engine applies algorithms (such as Delaunay triangulation or advancing front methods) to pack the surface with non-overlapping triangles. A critical feature of advanced meshing is localized refinement . The engine automatically generates smaller, denser triangles around areas of high geometric complexity (like sharp corners, holes, or applied point loads) to capture rapid stress concentrations accurately. Conversely, it leaves larger elements in uniform, unconstrained regions to reduce the total degrees of freedom, optimizing the computational speed of the linear solver.
 
 To press the solve button on the top UI invokes the _Julia Engine_ and sends the user to the analysis of results, which will be covered in @results.
@@ -216,15 +288,60 @@ $
 
 
 
-= EXAMPLE RESULTS <results>
+= Example Results <results>
 
-Present the main findings of the work. Tables, figures, and equations can be inserted in this section as needed.
+For the comparison of results of CaST and other FEM softwares, we will use the example set in the image below, from this subjects's textbook. The material has the following properties, for values in $f, u$:
 
-Discuss the observed results and highlight the most important outcomes.
+$
+  E = 216 dot 10 ^ 9 (f)/(u^2) \
+  nu = 0.3 \
+  h = 0.005 " u" \
+  q = 50 dot 10 ^ 6 dot 5 dot 10 ^-3 = #{50 * 1e6 * 5 * 1e-3} f/u
+$
 
-#pagebreak()
+#figure(
+  image("example.png", width: 70%),
+  caption: [Symmetric plate to be solved]
+) <examp>
 
-= CONCLUSION
+Applying symmetry, the plate in @examp is drawn in CaST.
+
+#figure(
+  image(
+    "example_cast.png",
+    width: 80%
+  ),
+  caption: [Example drawn at CaST]
+)
+
+After pressing the solve button, the following result, for average displacements, appears. Although the computational time was of about 11.22 seconds, about 6-8 seconds are exclusively due to 
+
+#figure(
+  image("res_avg.png", width: 80%),
+  caption: [Results for average displacement]
+)
+
+The figure shows a heatmap of average displacements, along with a scaled representation of displacements, to be changed with the slides above. Hovering the mouse shows the information on that current element. 
+
+#let h = 9cm
+#figure(
+  grid(
+    columns: range(3).map(_=>auto),
+    image("res_dx.png", height: h, ),
+    pad([], left: 5pt),
+    image("res_dy.png", height: h),
+  ),
+  caption: [displacement heatmaps for x and y, respectively]
+) <res_d>
+
+#figure(
+  image("res_book_disp.png"),
+  caption: [Solution as defined by the textbook, for displacements and x and y, respectively]
+) <res_book_d>
+
+As we can see from @res_d and @res_book_d, displacement in the y direction and the top-left corner is about $0.020 m m$ 
+
+= Conclusion
 
 Summarize the work, emphasizing the main contributions and findings.
 

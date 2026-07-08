@@ -1,0 +1,79 @@
+{
+    "nodes": {
+        "5": {
+            "x": 0.0,
+            "y": 0.0
+        },
+        "6": {
+            "x": 10.0,
+            "y": 0.0
+        },
+        "7": {
+            "x": 10.0,
+            "y": 0.4
+        },
+        "8": {
+            "x": 0.0,
+            "y": 0.4
+        }
+    },
+    "edges": {
+        "5": {
+            "type": "linear",
+            "start_node": 5,
+            "end_node": 8,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "6": {
+            "type": "linear",
+            "start_node": 8,
+            "end_node": 7,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "7": {
+            "type": "linear",
+            "start_node": 7,
+            "end_node": 6,
+            "mid_node": null,
+            "boundary_group": "external"
+        },
+        "8": {
+            "type": "linear",
+            "start_node": 6,
+            "end_node": 5,
+            "mid_node": null,
+            "boundary_group": "external"
+        }
+    },
+    "material": {
+        "E": 1000000.0,
+        "nu": 0.1,
+        "gamma": 0.0,
+        "h": 1.0
+    },
+    "supports": {
+        "nodes": {
+            "8": "yx",
+            "5": "yx"
+        },
+        "edges": {
+            "5": "xy"
+        }
+    },
+    "forces": {
+        "nodes": {
+            "7": {
+                "fx": 0.0,
+                "fy": -1.0,
+                "m": 0.0
+            }
+        },
+        "edges": {}
+    },
+    "counters": {
+        "nodes": 8,
+        "edges": 8
+    }
+}

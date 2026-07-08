@@ -272,15 +272,6 @@ class MainView:
         # on startup, mode is node
         self.set_toolbar_visibility("node")
 
-        self.settings_btn = ttk.Button(
-            toolbar,
-            text="⚙️"
-        )
-
-        self.settings_btn.pack(
-            side="right",
-            padx=5
-        )
 
     def _build_canvas(self):
 
