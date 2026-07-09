@@ -321,6 +321,8 @@ The element was discretized with 576 elements, and the Plane Stress analysis was
 
 Both of these observations will be observed in future versions of CaST.
 
+== Displacement Results <disp_res>
+
 #figure(
   image("res_avg.png", width: 80%),
   caption: [Results for average displacement]
@@ -369,6 +371,12 @@ These results point of course to a conclusion that CaST is not (_yet_) a profess
 Here presented are the results for stress distribution along the element.
 
 #let h = 9cm
+
+#figure(
+  image("res_book_st.png", width: 90%),
+  caption: [Horizontal and vertical stresses from the textbook]
+) <res_book_st>
+
 #figure(
   grid(
     columns: range(3).map(_=>auto),
@@ -384,7 +392,7 @@ Here presented are the results for stress distribution along the element.
   caption: [Shearing stress heatmap]
 ) <res_sz>
 
-The results seen from @res_sxy and @res_sz are compatible with the expected, i.e. a tendency of "tearing" of the plate along the lower boundary, along with a higher compression of the element along the upper part of the circular hole.
+The results seen from @res_sxy and @res_sz are compatible with the expected, i.e. a tendency of "tearing" of the plate along the lower boundary, along with a higher compression of the element along the upper part of the circular hole. In comparison to the textbook (@res_book_st), again, the values observed were similar on magnitude, but slightly different, on the same scale as displacements, as observed in @disp_res.
 
 An immediate improvement to the software would be a smoothing of the stress heatmap, improving the calculation of stress by considering not only the element itself, but its neighbors. 
 
