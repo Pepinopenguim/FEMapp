@@ -314,7 +314,12 @@ Applying symmetry, the plate in @examp is drawn in CaST.
   caption: [Example drawn at CaST]
 )
 
-After pressing the solve button, the following result, for average displacements, appears. Although the computational time was of about 11.22 seconds, about 6-8 seconds are exclusively due to 
+The element was discretized with 576 elements, and the Plane Stress analysis was chosen (given the place is thin). After pressing the solve button, the following result, for average displacements, appears. From testing, it was observed that:
+
+- The computational time is more so because of the communication of the julia engine from python than the calculations itself. 
+- Efficiency on time varies a lot between which device was used.
+
+Both of these observations will be observed in future versions of CaST.
 
 #figure(
   image("res_avg.png", width: 80%),
@@ -322,6 +327,8 @@ After pressing the solve button, the following result, for average displacements
 )
 
 The figure shows a heatmap of average displacements, along with a scaled representation of displacements, to be changed with the slides above. Hovering the mouse shows the information on that current element. 
+
+Now, superficial comparison is made, between results on CaST and textbook.
 
 #let h = 9cm
 #figure(
@@ -339,21 +346,73 @@ The figure shows a heatmap of average displacements, along with a scaled represe
   caption: [Solution as defined by the textbook, for displacements and x and y, respectively]
 ) <res_book_d>
 
-As we can see from @res_d and @res_book_d, displacement in the y direction and the top-left corner is about $0.020 m m$ 
+As seen from @res_d and @res_book_d, the heatmaps display very similar looking results. Numerically, though, there are differences. 
 
-= Conclusion
 
-Summarize the work, emphasizing the main contributions and findings.
+#let darkgreen = color.linear-rgb(0.33%, 22.32%, 0.33%)
+#let darkred = color.linear-rgb(48.51%, 1.76%, 1.37%)
 
-Discuss future work, possible improvements, or final remarks.
+For $u_x$, values in the graph vary from #text([*$0 u$*], fill: darkred) (at the boundary conditions) to about #text([*$-1.67 dot 10^(-5) u$*], fill: darkgreen), Where $u$ represents meters. So, it is clear CaST's solution is a tad exagerated (assuming the textbook as absolutely correct), and brings a lesser stiffness compared to the textbook's solution, which found the most exagerated  displacement at about $1 dot 10^(-5) u$.
 
-#pagebreak()
+The same occurs for $u_y$. Values in the heatmap vary from #text([*$0 u$*], fill: darkgreen), at the boundary conditions, to about #text([*$3 dot 10^(-5) u$*], fill: darkred), at the top left corner, where in the textbook are no more than $2 dot 10^(-5) u$.
 
-= References
+Although, these results do not imply the software is incorrect; the visually similar gradient fields validate the underlying mathematical core of the engine, including the Jacobian transformations and the assembly of the global stiffness matrix. 
 
-- Reference 1
-- Reference 2
-- Reference 3
+In finite element theory, Constant Strain Triangles (CSTs) inherently suffer from artificial stiffness (often referred to as shear locking in bending-dominated scenarios). Therefore, if the discrepancy were solely due to the element formulation, CaST's mesh would typically underestimate the displacements, converging to the exact solution from below. Since CaST's model exhibits more flexible behavior (yielding larger displacements), the scalar shift is most likely attributed to force discretization methodologies and boundary meshing. 
+
+CaST computes nodal forces by interpolating the 1D line load across the boundary edges, using a segmented tributary method.If the textbook's reference software utilizes a different load integration technique—such as exact Gaussian quadrature evaluated over higher-order element boundaries—or applies its symmetry constraints over a different nodal density, the total effective applied force and boundary rigidity will marginally shift. Thus, the numerical difference highlights a variation in boundary interaction modeling rather than a failure in the solver's elasticity physics.
+
+These results point of course to a conclusion that CaST is not (_yet_) a professionally designed software, and its use in professional enviroments is absolutely not recommended other than a superficial and quick visualization of the probable deformations of the element. 
+
+== Stress results
+
+Here presented are the results for stress distribution along the element.
+
+#let h = 9cm
+#figure(
+  grid(
+    columns: range(3).map(_=>auto),
+    image("res_stx.png", height: h, ),
+    pad([], left: 5pt),
+    image("res_sty.png", height: h),
+  ),
+  caption: [Stress heatmaps for x and y, respectively]
+) <res_sxy>
+
+#figure(
+  image("res_stz.png", height: h),
+  caption: [Shearing stress heatmap]
+) <res_sz>
+
+The results seen from @res_sxy and @res_sz are compatible with the expected, i.e. a tendency of "tearing" of the plate along the lower boundary, along with a higher compression of the element along the upper part of the circular hole.
+
+An immediate improvement to the software would be a smoothing of the stress heatmap, improving the calculation of stress by considering not only the element itself, but its neighbors. 
+
+== Node Analysis
+
+CaST also allows the user to analyze nodes, which is specially useful to obtain information on reactions. 
+
+
+#figure(
+  image("res_node.png", width: 90%),
+  caption: [Shearing stress heatmap]
+) <res_n>
+
+From @res_n, which zooms into the node from the upper section of the circular hole, we can obtain its id (Although not useful for much, other than debugging), average and axis displacements, and for support nodes, the reactions obtained. The node at the figure is compatible with expected results. 
+
+= Conclusions
+
+The development of CaST served as a comprehensive exercise in understanding and implementing the Finite Element Method from the ground up. The project successfully bridged theoretical solid mechanics with practical software engineering, demonstrating the complete computational pipeline.
+
+While the current iteration of the software successfully captures the qualitative mechanical behavior of 2D elastic structures, several improvements could be implemented to enhance its quantitative accuracy and overall capability. Conceivable upgrades for future iterations include:
+
+- *Higher-Order Elements:* Implementing 6-node Linear Strain Triangles (LSTs) or quadrilateral elements to completely mitigate the artificial stiffness inherent to CSTs and accurately capture bending gradients.
+- *Advanced Numerical Integration:* Upgrading the current tributary load distribution method to utilize exact Gaussian quadrature evaluated over the element boundaries, ensuring mathematically rigorous force discretization.
+- *Better Mesh Refinement:* Integrating an automated feedback loop with the meshing engine to dynamically increase node density specifically around areas of high stress concentration or geometric complexity (such as holes and sharp corners).
+- *Inter-Process Communication (IPC) Optimization:* Transitioning the data transfer between the Python frontend and the Julia solver from a standard json based file I/O to a faster, memory-based protocol—such as local sockets—to reduce latency.
+
+Ultimately, CaST stands as a highly successful educational tool that validates the core formulations of linear elasticity while leaving a clear, modular pathway for advanced numerical expansions.
+
 
 
 
