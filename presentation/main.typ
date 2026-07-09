@@ -414,6 +414,19 @@ While the current iteration of the software successfully captures the qualitativ
 Ultimately, CaST stands as a highly successful educational tool that validates the core formulations of linear elasticity while leaving a clear, modular pathway for advanced numerical expansions.
 
 
+== Repository
+
+Code may be downloaded from the github repo below (careful, it's a mess):
+
+#show link: underline
+
+#align(
+  center, 
+  [
+    #link("https://github.com/Pepinopenguim/FEMapp"),
+    #image("qrcode.png", width: 20%)
+  ]
+)
 
 
 
